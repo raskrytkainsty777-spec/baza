@@ -212,6 +212,10 @@ async def _cleanup_remote(db: AsyncSession) -> None:
     for job in jobs:
         if (job.payload or {}).get("remote_deleted"):
             continue
+        if (job.payload or {}).get("adopted"):
+            # создано заказчиком на сайте parser.im — не наше, не трогаем
+            job.payload = {**(job.payload or {}), "remote_deleted": True}
+            continue
         for tid in _tids(job):
             try:
                 await pim.delete_task(tid)

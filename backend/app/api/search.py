@@ -12,7 +12,8 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgEvent, LgReject, LgSearchTask
+from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgEvent, LgJob, LgReject, LgSearchTask
+from ..services.parserim import client as pim
 from .deps import require_token
 
 router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_token)])
@@ -29,6 +30,11 @@ class TaskCreate(BaseModel):
 class Assign(BaseModel):
     candidate_ids: list[int]
     city_id: int | None = None      # None → неразобранный донор
+
+
+class Adopt(BaseModel):
+    tid: str                        # id задания на parser.im
+    kind: str | None = None         # hashtag | keyword; пусто — по типу задания (p3 / p5)
 
 
 def _task_dto(t: LgSearchTask) -> dict:
@@ -75,6 +81,42 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
     db.add(t)
     await db.flush()
     db.add(LgEvent(kind="search.created", entity="search_task", entity_id=t.id, message=f"Задача поиска: {title}"))
+    await db.commit()
+    return _task_dto(t)
+
+
+@router.post("/adopt", status_code=201)
+async def adopt(body: Adopt, db: AsyncSession = Depends(get_db)):
+    """Подключить задание, созданное на сайте parser.im: без пересбора встаёт в нашу
+    цепочку — воркер заберёт результат, когда оно завершится, дальше f1 → ИИ → распределение."""
+    tid = body.tid.strip()
+    if not tid.isdigit():
+        raise HTTPException(400, "tid — число из списка заданий parser.im")
+    dup = (await db.execute(select(LgJob).where(LgJob.provider == "parserim", LgJob.external_id == tid))).scalar_one_or_none()
+    if dup:
+        raise HTTPException(409, f"Задание {tid} уже подключено (задача поиска #{dup.search_task_id})")
+    try:
+        st = await pim.task_status(tid)
+    except pim.ParserImError as e:
+        raise HTTPException(400, f"parser.im: {e}")
+    kind = body.kind or {"p3": "hashtag", "p5": "keyword"}.get(str(st.get("type") or ""))
+    if kind not in ("hashtag", "keyword"):
+        raise HTTPException(400, "Подключать можно p3 (авторы по тегам) и p5 (авторы по ключам)")
+    name = (st.get("name") or f"parser.im {tid}").strip()
+    title = f"{'Теги' if kind == 'hashtag' else 'Ключи'}: {name} · parser.im {tid}"
+    t = LgSearchTask(kind=kind, input={"values": [], "adopted_tid": tid, "parserim_name": name}, title=title,
+                     stage="collecting", stage_changed_at=datetime.now(timezone.utc))
+    db.add(t)
+    await db.flush()
+    try:
+        count = int(str(st.get("count") or 0))
+    except ValueError:
+        count = 0
+    db.add(LgJob(provider="parserim", external_id=tid, kind="search", purpose=f"Поиск авторов (подключено): {name}",
+                 payload={"kind": kind, "values": [], "adopted": True}, lines=1, priority=40, state="running",
+                 search_task_id=t.id, count=count, started_at=datetime.now(timezone.utc)))
+    db.add(LgEvent(kind="search.adopted", entity="search_task", entity_id=t.id,
+                   message=f"Подключено задание parser.im {tid} «{name}», статус {st.get('tid_status')}, авторов {count}"))
     await db.commit()
     return _task_dto(t)
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Badge, Button, Group, Paper, Select, Stack, Table, Text, Textarea, Title } from "@mantine/core";
+import { Badge, Button, Group, Paper, Select, Stack, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconArrowRight } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,6 +36,7 @@ export default function Search() {
   const [kind, setKind] = useState("hashtag");
   const [text, setText] = useState("");
   const [assignCity, setAssignCity] = useState("");
+  const [tid, setTid] = useState("");
   const [sel, setSel] = useState<number[]>([]);
 
   const tasks = useQuery({ queryKey: ["search-tasks"], queryFn: () => api("/search/tasks"), refetchInterval: 20_000 });
@@ -46,6 +47,10 @@ export default function Search() {
   const create = useMutation({
     mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean) } }),
     onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
+  });
+  const adopt = useMutation({
+    mutationFn: () => api("/search/adopt", { method: "POST", body: { tid: tid.trim() } }),
+    onSuccess: (t: any) => { setTid(""); bust(); notifications.show({ color: "green", message: `Подключено: ${t.title}` }); }, onError: err,
   });
   const distribute = useMutation({ mutationFn: (id: number) => api(`/search/tasks/${id}/distribute`, { method: "POST" }), onSuccess: (r: any) => { bust(); notifications.show({ color: "green", message: `В города ушло ${r.distributed}` }); }, onError: err });
   const assign = useMutation({ mutationFn: () => api("/search/candidates/assign", { method: "POST", body: { candidate_ids: sel, city_id: assignCity ? Number(assignCity) : null } }), onSuccess: () => { setSel([]); bust(); }, onError: err });
@@ -66,6 +71,11 @@ export default function Search() {
           <Select w={230} value={kind} onChange={(v) => setKind(v || "hashtag")} data={[{ value: "hashtag", label: "по тегам · parser.im" }, { value: "keyword", label: "по ключам · parser.im" }]} />
           <Textarea style={{ flex: 1 }} autosize minRows={1} placeholder={kind === "hashtag" ? "#риелтормосква, #новостройкимосквы, …" : "риелтор, агент по недвижимости, новостройки"} value={text} onChange={(e) => setText(e.currentTarget.value)} />
           <Button loading={create.isPending} disabled={!text.trim()} onClick={() => create.mutate()}>Запустить</Button>
+        </Group>
+        <Group gap="xs" mt="sm" align="flex-end">
+          <TextInput w={200} size="xs" label="Задание уже создано на сайте parser.im?" placeholder="tid, например 5531333" value={tid} onChange={(e) => setTid(e.currentTarget.value)} />
+          <Button size="xs" variant="light" loading={adopt.isPending} disabled={!tid.trim()} onClick={() => adopt.mutate()}>Подключить</Button>
+          <Text size="xs" c="dimmed">p3 по тегам или p5 по ключам · без пересбора: результат заберём, когда задание закончится, дальше f1 → ИИ</Text>
         </Group>
         <Text size="xs" c="dimmed" mt="xs">Рекомендации Apify — из «Доноров»: отметьте сидов галочками и нажмите «Выбранных → в рекомендации». Уже известные аккаунты и отклонённые в задачу не попадают.</Text>
       </Paper>
