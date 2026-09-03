@@ -1,0 +1,62 @@
+# baza — комментарии в лиды
+
+Сервис ищет риелторов по городам, следит за их продающими постами в Instagram
+и вытаскивает из комментариев людей с реальным интересом — уже с номером телефона.
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — решения, модель данных, воркеры, контракты, фазы
+- [docs/DECISIONS.md](docs/DECISIONS.md) — журнал решений: что, почему, что отвергли
+- [docs/PARSERIM.md](docs/PARSERIM.md) — квирки API parser.im, из-за которых код такой
+
+## Стек
+
+Python 3.12 · FastAPI · SQLAlchemy 2 async · PostgreSQL 16 · Alembic — бэкенд и воркеры.
+React 18 · TypeScript · Vite · Mantine 7 · TanStack Query 5 — фронт.
+Без Docker, Redis и Celery — см. DECISIONS.
+
+## Структура
+
+```
+backend/
+  app/
+    main.py           API
+    config.py  db.py
+    models/           по файлу на группу таблиц
+    api/              роутеры по разделам
+    services/
+      parserim/       клиент + типы заданий p1/p2/p3/p5/f1
+      apify/          клиент
+      ai/             вызовы моделей; промпты в backend/prompts/
+      probe.py        связь со старым сервером пробива
+    workers/          по файлу на воркер, планировщик в scheduler.py
+  migrations/         alembic
+  prompts/            промпты ИИ отдельными файлами
+frontend/             vite + react
+deploy/               systemd-юниты, nginx, deploy.sh
+```
+
+## Локально
+
+```bash
+cd backend
+python -m venv .venv && . .venv/Scripts/activate      # Windows
+pip install -r requirements.txt
+cp ../.env.example ../.env                              # заполнить
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+```bash
+cd frontend
+npm ci && npm run dev
+```
+
+## Сервер
+
+`95.81.103.196`, Ubuntu 24.04. Две службы: `baza-api`, `baza-worker`. nginx отдаёт `frontend/dist`
+и проксирует `/api`. Деплой:
+
+```bash
+ssh root@95.81.103.196 /opt/baza/deploy/deploy.sh
+```
+
+Скрипт: `git pull` → `pip install` → `alembic upgrade head` → `npm ci && npm run build` → `systemctl restart`.

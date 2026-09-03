@@ -1,0 +1,18 @@
+[Unit]
+Description=baza workers (планировщик фоновых задач)
+After=network.target postgresql.service baza-api.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=baza
+Group=baza
+WorkingDirectory=/opt/baza/backend
+EnvironmentFile=/opt/baza/.env
+ExecStart=/opt/baza/backend/.venv/bin/python -m app.workers.scheduler
+Restart=always
+RestartSec=5
+# логи: journalctl -u baza-worker -f
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=baza API (uvicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=baza
+Group=baza
+WorkingDirectory=/opt/baza/backend
+EnvironmentFile=/opt/baza/.env
+ExecStart=/opt/baza/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
+Restart=always
+RestartSec=3
+# логи: journalctl -u baza-api -f
+
+[Install]
+WantedBy=multi-user.target

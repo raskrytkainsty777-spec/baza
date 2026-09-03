@@ -1,0 +1,26 @@
+# секреты
+.env
+*.env.local
+
+# python
+__pycache__/
+*.pyc
+backend/.venv/
+.pytest_cache/
+
+# node / vite
+frontend/node_modules/
+frontend/dist/
+
+# служебное
+*.log
+*.bak.*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# данные — в git не кладём
+*.xlsx
+*.csv
+*.db
