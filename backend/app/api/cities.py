@@ -7,7 +7,10 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
+from datetime import timedelta
+
 from ..models import LgCity, LgDonor, LgLead, LgPost
+from ..workers.common import as_int, settings_all, utcnow
 from .deps import require_token
 
 router = APIRouter(prefix="/api/cities", tags=["cities"], dependencies=[Depends(require_token)])
@@ -74,6 +77,18 @@ async def _counts(db: AsyncSession) -> dict[int, dict]:
     for city_id, total, active, selling in rows:
         if city_id is not None:
             out.setdefault(city_id, {}).update(posts=total, posts_active=active, posts_selling=selling)
+    # первый сбор: продающие посты за окно, у которых комментарии ещё ни разу не забирали
+    since = utcnow() - timedelta(days=as_int(await settings_all(db), "intake_days", 45))
+    rows = (await db.execute(
+        select(LgPost.city_id,
+               func.count().filter(LgPost.last_collected_at.is_(None)),
+               func.count().filter(LgPost.last_collected_at.isnot(None)),
+               func.coalesce(func.sum(LgPost.collected_comments), 0))
+        .where(LgPost.is_selling.is_(True), LgPost.monitor_status.in_(["active", "forced"]), LgPost.published_at >= since)
+        .group_by(LgPost.city_id))).all()
+    for city_id, pending, collected, comments in rows:
+        if city_id is not None:
+            out.setdefault(city_id, {}).update(posts_pending_first=pending, posts_collected=collected, comments_collected=int(comments))
     rows = (await db.execute(
         select(LgLead.city_id,
                func.count(),
@@ -124,7 +139,8 @@ async def get_city(city_id: int, db: AsyncSession = Depends(get_db)):
     if not city:
         raise HTTPException(404, "Город не найден")
     data = {k: 0 for k in ("donors_new", "donors_monitored", "donors_paused", "posts", "posts_selling",
-                          "posts_active", "leads", "leads_unprobed", "leads_with_phone", "leads_sent")}
+                          "posts_active", "leads", "leads_unprobed", "leads_with_phone", "leads_sent",
+                          "posts_pending_first", "posts_collected", "comments_collected")}
     data.update((await _counts(db)).get(city_id, {}))
     return _dto(city, data)
 

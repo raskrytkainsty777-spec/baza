@@ -104,6 +104,7 @@ export function CityPage() {
       <KpiRow>
         <Kpi value={`${c.donors_new} / ${c.donors_monitored}`} label="доноров: новых / на мониторе" hint={`на паузе ${c.donors_paused}`} />
         <Kpi value={n(c.posts)} label="постов" hint={`продающих ${n(c.posts_selling)} · в сборе ${n(c.posts_active)}`} />
+        <Kpi value={<Text span c={c.posts_pending_first ? "orange.8" : undefined}>{n(c.posts_pending_first)}</Text>} label="постов ждут первого сбора" hint={`собрано с ${n(c.posts_collected)} · комментариев ${n(c.comments_collected)}${c.collect_comments ? "" : " · сбор выкл"}`} />
         <Kpi value={n(c.leads)} label="лидов всего" />
         <Kpi value={<Text span c={c.leads_unprobed ? "orange.8" : undefined}>{n(c.leads_unprobed)}</Text>} label="непробитых" />
         <Kpi value={n(c.leads_with_phone)} label="с номером" hint={`отправлено в CRM ${n(c.leads_sent)}`} />
