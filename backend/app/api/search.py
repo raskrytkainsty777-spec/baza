@@ -1,0 +1,200 @@
+"""Задачи поиска доноров — карточки с этапами; кандидаты живут внутри задачи.
+
+Создание кладёт задачу в стадию collecting, дальше её ведёт воркер discovery:
+сбор → f1 → ИИ «кто и где» → ready. Здесь — только создание, чтение и кнопки
+«Распределить», «В город руками», «Отклонить».
+"""
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..db import get_db
+from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgEvent, LgReject, LgSearchTask
+from .deps import require_token
+
+router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_token)])
+
+CONFIDENT = 0.9
+
+
+class TaskCreate(BaseModel):
+    kind: str                       # hashtag | keyword | recommendation
+    values: list[str] = []          # теги / слова
+    seed_donor_ids: list[int] = []  # для recommendation
+
+
+class Assign(BaseModel):
+    candidate_ids: list[int]
+    city_id: int | None = None      # None → неразобранный донор
+
+
+def _task_dto(t: LgSearchTask) -> dict:
+    return {
+        "id": t.id, "kind": t.kind, "title": t.title, "input": t.input, "stage": t.stage, "error": t.error,
+        "collected": t.collected, "passed": t.passed, "rejected_inactive": t.rejected_inactive,
+        "rejected_activity": t.rejected_activity, "confident": t.confident, "unclear": t.unclear,
+        "distributed": t.distributed, "created_at": t.created_at, "stage_changed_at": t.stage_changed_at,
+    }
+
+
+@router.get("/tasks")
+async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(LgSearchTask).order_by(desc(LgSearchTask.created_at)).limit(limit))).scalars().all()
+    unclear_total = (await db.execute(
+        select(func.count()).select_from(LgCandidate).where(LgCandidate.state == "unclear"))).scalar() or 0
+    return {"items": [_task_dto(t) for t in rows], "unclear_total": unclear_total}
+
+
+@router.post("/tasks", status_code=201)
+async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
+    if body.kind not in ("hashtag", "keyword", "recommendation"):
+        raise HTTPException(400, "kind: hashtag | keyword | recommendation")
+    values = [v.strip().lstrip("#") for v in body.values if v.strip()]
+    if body.kind == "recommendation":
+        if not body.seed_donor_ids:
+            raise HTTPException(400, "Выберите доноров-сидов")
+        seeds = (await db.execute(
+            select(IgAccount.username).join(LgDonor, LgDonor.account_id == IgAccount.id)
+            .where(LgDonor.id.in_(body.seed_donor_ids)))).scalars().all()
+        if not seeds:
+            raise HTTPException(404, "Сиды не найдены")
+        title = "Рекомендации: " + ", ".join(seeds[:4]) + (f" +{len(seeds) - 4}" if len(seeds) > 4 else "")
+        payload = {"seeds": seeds, "seed_donor_ids": body.seed_donor_ids}
+    else:
+        if not values:
+            raise HTTPException(400, "Введите теги или ключевые слова")
+        label = "Теги" if body.kind == "hashtag" else "Ключи"
+        shown = [("#" + v) if body.kind == "hashtag" else v for v in values]
+        title = f"{label}: " + ", ".join(shown[:3]) + (f" +{len(shown) - 3}" if len(shown) > 3 else "")
+        payload = {"values": values}
+    t = LgSearchTask(kind=body.kind, input=payload, title=title, stage="collecting",
+                     stage_changed_at=datetime.now(timezone.utc))
+    db.add(t)
+    await db.flush()
+    db.add(LgEvent(kind="search.created", entity="search_task", entity_id=t.id, message=f"Задача поиска: {title}"))
+    await db.commit()
+    return _task_dto(t)
+
+
+@router.get("/tasks/{task_id}")
+async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
+    t = await db.get(LgSearchTask, task_id)
+    if not t:
+        raise HTTPException(404, "Задача не найдена")
+    by_city = (await db.execute(
+        select(LgCity.name, func.count()).join(LgCandidate, LgCandidate.city_id == LgCity.id)
+        .where(LgCandidate.task_id == task_id, LgCandidate.state == "classified",
+               LgCandidate.city_confidence >= CONFIDENT)
+        .group_by(LgCity.name).order_by(desc(func.count())))).all()
+    return {**_task_dto(t), "ready_by_city": [{"city": c, "count": n} for c, n in by_city]}
+
+
+@router.get("/candidates")
+async def list_candidates(
+    task_id: int | None = None,
+    state: str | None = None,
+    limit: int = Query(200, le=1000),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """Кандидаты — обычно только неразобранные: логины по задаче в UI не показываем."""
+    stmt = select(LgCandidate, LgCity.name).outerjoin(LgCity, LgCity.id == LgCandidate.city_id)
+    if task_id:
+        stmt = stmt.where(LgCandidate.task_id == task_id)
+    if state:
+        stmt = stmt.where(LgCandidate.state == state)
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+    rows = (await db.execute(stmt.order_by(desc(LgCandidate.city_confidence).nullslast(), LgCandidate.id)
+                             .limit(limit).offset(offset))).all()
+    return {"total": total, "items": [{
+        "id": c.id, "task_id": c.task_id, "username": c.username, "found_by": c.found_by,
+        "full_name": c.full_name, "bio": (c.bio or "")[:200], "address": c.address,
+        "followers": c.followers, "last_post_at": c.last_post_at,
+        "activity_kind": c.activity_kind, "activity_ok": c.activity_ok,
+        "city_id": c.city_id, "city": city_name, "city_name_raw": c.city_name_raw,
+        "city_confidence": c.city_confidence, "ai_reason": c.ai_reason,
+        "state": c.state, "reject_reason": c.reject_reason,
+    } for c, city_name in rows]}
+
+
+async def _make_donor(db: AsyncSession, c: LgCandidate, city_id: int | None, task: LgSearchTask) -> bool:
+    """Кандидат → аккаунт + донор. Возвращает False, если такой донор уже есть."""
+    acc = (await db.execute(select(IgAccount).where(IgAccount.username == c.username))).scalar_one_or_none()
+    if acc is None:
+        acc = IgAccount(username=c.username, ig_id=c.ig_id, full_name=c.full_name, bio=c.bio,
+                        address=c.address, followers=c.followers, posts_count=c.posts_count,
+                        last_post_at=c.last_post_at, roles="donor", activity_kind=c.activity_kind,
+                        city_id=city_id, city_source="ai" if city_id else None)
+        db.add(acc)
+        await db.flush()
+    else:
+        acc.roles = "donor" if acc.roles == "donor" else "both"
+        if city_id and not acc.city_id:
+            acc.city_id, acc.city_source = city_id, "ai"
+    q = select(LgDonor).where(LgDonor.account_id == acc.id)
+    q = q.where(LgDonor.city_id == city_id) if city_id else q.where(LgDonor.city_id.is_(None))
+    if (await db.execute(q)).scalar_one_or_none():
+        return False
+    db.add(LgDonor(account_id=acc.id, city_id=city_id, status="new" if city_id else "unclassified",
+                   intake_stage="posts", found_via=task.kind, search_task_id=task.id,
+                   status_reason=f"из задачи поиска #{task.id}"))
+    return True
+
+
+@router.post("/tasks/{task_id}/distribute")
+async def distribute(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Уверенные (≥0.9, деятельность подходит) → в свои города статусом «новый»."""
+    t = await db.get(LgSearchTask, task_id)
+    if not t:
+        raise HTTPException(404, "Задача не найдена")
+    cands = (await db.execute(select(LgCandidate).where(
+        LgCandidate.task_id == task_id, LgCandidate.state == "classified",
+        LgCandidate.city_id.isnot(None), LgCandidate.city_confidence >= CONFIDENT,
+        LgCandidate.activity_ok.isnot(False)))).scalars().all()
+    made = 0
+    for c in cands:
+        if await _make_donor(db, c, c.city_id, t):
+            made += 1
+        c.state = "distributed"
+    t.distributed = (t.distributed or 0) + made
+    if t.stage == "ready":
+        t.stage = "distributed"
+        t.stage_changed_at = datetime.now(timezone.utc)
+    db.add(LgEvent(kind="search.distributed", entity="search_task", entity_id=t.id,
+                   message=f"Распределено по городам: {made} из {len(cands)}"))
+    await db.commit()
+    return {"distributed": made, "considered": len(cands)}
+
+
+@router.post("/candidates/assign")
+async def assign(body: Assign, db: AsyncSession = Depends(get_db)):
+    """Руками: в конкретный город или (city_id=null) — неразобранным донором,
+    чьи продающие посты получат город от ИИ."""
+    if body.city_id and not await db.get(LgCity, body.city_id):
+        raise HTTPException(404, "Город не найден")
+    cands = (await db.execute(select(LgCandidate).where(LgCandidate.id.in_(body.candidate_ids)))).scalars().all()
+    made = 0
+    for c in cands:
+        t = await db.get(LgSearchTask, c.task_id)
+        if await _make_donor(db, c, body.city_id, t):
+            made += 1
+        c.state = "distributed"
+        c.city_id = body.city_id
+    await db.commit()
+    return {"assigned": made, "considered": len(cands)}
+
+
+@router.post("/candidates/reject")
+async def reject(body: Assign, db: AsyncSession = Depends(get_db)):
+    cands = (await db.execute(select(LgCandidate).where(LgCandidate.id.in_(body.candidate_ids)))).scalars().all()
+    for c in cands:
+        c.state = "rejected"
+        c.reject_reason = "manual"
+        exists = (await db.execute(select(LgReject).where(LgReject.username == c.username))).scalar_one_or_none()
+        if not exists:
+            db.add(LgReject(username=c.username, reason="manual", search_task_id=c.task_id))
+    await db.commit()
+    return {"rejected": len(cands)}
