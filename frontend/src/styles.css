@@ -1,0 +1,11 @@
+/* Немного поверх Mantine: цифры моноширинные, таблицы плотные, ссылки без подчёркивания */
+.num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; white-space: nowrap; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+.muted { color: var(--mantine-color-dimmed); }
+.clip { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip2 { max-width: 520px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+table.mantine-Table-table thead th { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--mantine-color-dimmed); font-weight: 600; white-space: nowrap; }
+table.mantine-Table-table td { font-size: 13px; vertical-align: top; }
+a.rowlink { color: var(--mantine-color-violet-7); text-decoration: none; font-weight: 500; }
+a.rowlink:hover { text-decoration: underline; }
+.kpi { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 24px; font-weight: 600; line-height: 1.1; }
