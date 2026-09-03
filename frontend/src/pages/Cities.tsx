@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Alert, Button, Code, Group, NumberInput, Paper, PasswordInput, Select, Stack, Switch, Table, Text, TextInput, Title } from "@mantine/core";
+import { Badge, Button, Code, Group, NumberInput, Paper, PasswordInput, Select, Stack, Switch, Table, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import { City, Kpi, KpiRow, n, useCities } from "../ui";
+import { City, Kpi, KpiRow, dt, n, useCities } from "../ui";
 
 export function Cities() {
   const qc = useQueryClient();
@@ -53,12 +53,20 @@ export function Cities() {
   );
 }
 
+const PROBE_ROWS: [string, string][] = [
+  ["pending", "непробитые — ждут решения"], ["manual", "отмечены к пробиву"], ["queued", "в очереди на отправку"],
+  ["sent", "на сервисе пробива"], ["done", "номер найден"], ["skipped", "номер был в базе"], ["not_found", "не найден"], ["error", "ошибка"],
+];
+
 export function CityPage() {
   const { id } = useParams();
   const qc = useQueryClient();
   const city = useQuery({ queryKey: ["city", id], queryFn: () => api<City & Record<string, any>>(`/cities/${id}`) });
+  const probe = useQuery({ queryKey: ["probe-summary", id], queryFn: () => api(`/ops/cities/${id}/probe-summary`), refetchInterval: 30_000 });
   const [f, setF] = useState<any>({});
+  const [pf, setPf] = useState({ date_from: "", date_to: "", limit: "" });
   useEffect(() => { if (city.data) setF({ ...city.data, probe_hook_token: "", crm_secret: "" }); }, [city.data]);
+  const err = (e: any) => notifications.show({ color: "red", message: e.message });
   const save = useMutation({
     mutationFn: () => {
       const body: any = {};
@@ -68,12 +76,22 @@ export function CityPage() {
       return api(`/cities/${id}`, { method: "PATCH", body });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["city", id] }); qc.invalidateQueries({ queryKey: ["cities"] }); notifications.show({ color: "green", message: "Сохранено" }); },
-    onError: (e: any) => notifications.show({ color: "red", message: e.message }),
+    onError: err,
+  });
+  const send = useMutation({
+    mutationFn: () => api(`/ops/cities/${id}/probe`, { method: "POST", body: { date_from: pf.date_from || null, date_to: pf.date_to || null, limit: pf.limit ? Number(pf.limit) : null } }),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ["probe-summary", id] });
+      notifications.show({ color: r.queued ? "green" : "yellow", message: r.queued ? `Отмечено к пробиву: ${r.queued}${r.probe_enabled && r.has_token ? "" : " — пробив выключен или без токена, отправка подождёт"}` : "Нечего отдавать за выбранный период" });
+    },
+    onError: err,
   });
   const c = city.data;
   if (!c) return <Text c="dimmed">загрузка…</Text>;
   const set = (k: string, v: any) => setF((s: any) => ({ ...s, [k]: v }));
   const base = location.origin;
+  const ps = probe.data;
+  const probeReady = c.probe_enabled && c.probe_hook_token_set;
 
   return (
     <>
@@ -90,9 +108,42 @@ export function CityPage() {
         <Kpi value={n(c.leads_with_phone)} label="с номером" hint={`отправлено в CRM ${n(c.leads_sent)}`} />
       </KpiRow>
 
-      <Alert color="violet" variant="light" mb="md" title="Отсеки «непробитые / пробитые»">
-        Выбор актуальности по датам, ручная отдача в пробив и автоматическая выдача в CRM появятся здесь, когда заработает сбор комментариев и первые лиды лягут в базу. Настройки ниже уже действуют.
-      </Alert>
+      <Paper mb="md">
+        <Group justify="space-between" mb="xs">
+          <div><Text fw={600}>Отсеки: непробитые → пробив → с номером</Text><Text size="xs" c="dimmed">лид — комментарий, который ИИ признала интересом; номер — только из пробива или из базы, из инстаграма не берём</Text></div>
+          <Badge variant="light" color={probeReady ? "green" : "yellow"}>{probeReady ? `пробив ${c.probe_mode === "auto" ? "авто" : "вручную"}` : `пробив ${c.probe_hook_token_set ? "выключен" : "без токена"} — настройте ниже`}</Badge>
+        </Group>
+        <Group align="flex-start" grow>
+          <div>
+            <Table>
+              <Table.Tbody>
+                {PROBE_ROWS.map(([k, label]) => (
+                  <Table.Tr key={k}><Table.Td><Text size="sm">{label}</Text></Table.Td><Table.Td className="num">{n(ps?.by_status?.[k] || 0)}</Table.Td></Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </div>
+          <div>
+            <Text size="sm" fw={500} mb={4}>Непробитые по дате комментария</Text>
+            <Table>
+              <Table.Tbody>
+                {(ps?.unprobed_by_day || []).slice(0, 14).map((r: any) => (
+                  <Table.Tr key={r.day || "-"}><Table.Td className="num">{r.day ? dt(r.day, false) : "без даты"}</Table.Td><Table.Td className="num">{n(r.count)}</Table.Td></Table.Tr>
+                ))}
+                {!ps?.unprobed_by_day?.length && <Table.Tr><Table.Td colSpan={2}><Text size="sm" c="dimmed">непробитых нет</Text></Table.Td></Table.Tr>}
+              </Table.Tbody>
+            </Table>
+          </div>
+          <div>
+            <Text size="sm" fw={500} mb={4}>Отдать на пробив</Text>
+            <TextInput type="date" label="Комментарии с даты" value={pf.date_from} onChange={(e) => setPf({ ...pf, date_from: e.currentTarget.value })} />
+            <TextInput type="date" label="по дату" value={pf.date_to} onChange={(e) => setPf({ ...pf, date_to: e.currentTarget.value })} mt="xs" />
+            <NumberInput label="Не больше, шт" placeholder="все" value={pf.limit === "" ? "" : Number(pf.limit)} onChange={(v) => setPf({ ...pf, limit: v === "" ? "" : String(v) })} min={1} mt="xs" />
+            <Button mt="sm" loading={send.isPending} onClick={() => send.mutate()}>Отдать непробитых</Button>
+            <Text size="xs" c="dimmed" mt="xs">Пустые даты — все непробитые. Номер уже есть в базе — платный запрос не тратится. В режиме «авто» всё новое уходит само.</Text>
+          </div>
+        </Group>
+      </Paper>
 
       <Group align="flex-start" grow>
         <Stack>
@@ -129,16 +180,16 @@ export function CityPage() {
               <Switch label="Пробив включён" mt={28} checked={!!f.probe_enabled} onChange={(e) => set("probe_enabled", e.currentTarget.checked)} />
             </Group>
             <PasswordInput label="Токен задачи на сервисе пробива" placeholder={c.probe_hook_token_set ? "задан — введите, чтобы заменить" : "из вкладки Задачи → 🔗 на старом сервере"} value={f.probe_hook_token || ""} onChange={(e) => set("probe_hook_token", e.currentTarget.value)} mt="xs" />
-            <Text size="xs" c="dimmed" mt="xs">Постбек с номером сервис пробива шлёт на <Code>{base}/api/probe/callback</Code></Text>
+            <Text size="xs" c="dimmed" mt="xs">На пробив уходит вся строка: логин, город, комментарий, дата, ссылка на пост, разбор поста, lead_id в <Code>ref</Code>. Постбек с номером сервис пробива шлёт на <Code>{base}/api/probe/callback</Code></Text>
           </Paper>
           <Paper>
             <Text fw={600} mb="xs">CRM — куда уходят пробитые</Text>
             <TextInput label="Адрес приёма лидов" placeholder="https://ваш-сервис/leads" value={f.crm_webhook_url || ""} onChange={(e) => set("crm_webhook_url", e.currentTarget.value)} />
             <Group grow mt="xs">
-              <PasswordInput label="Секрет (X-Hook-Secret)" placeholder={c.crm_secret_set ? "задан" : "придумайте"} value={f.crm_secret || ""} onChange={(e) => set("crm_secret", e.currentTarget.value)} />
+              <PasswordInput label="Секрет (X-Baza-Secret)" placeholder={c.crm_secret_set ? "задан" : "придумайте"} value={f.crm_secret || ""} onChange={(e) => set("crm_secret", e.currentTarget.value)} />
               <Select label="Отдавать" value={f.send_mode || "auto"} onChange={(v) => set("send_mode", v)} data={[{ value: "auto", label: "автоматически, сразу" }, { value: "manual", label: "вручную" }]} />
             </Group>
-            <Text size="xs" c="dimmed" mt="xs">Статусы (негатив / заявка / квал / сделка) CRM шлёт по lead_id на <Code>{base}/api/crm/status</Code></Text>
+            <Text size="xs" c="dimmed" mt="xs">Статусы (негатив / заявка / квал / сделка) CRM шлёт по lead_id на <Code>{base}/api/crm/status</Code> с тем же секретом в заголовке.</Text>
           </Paper>
         </Stack>
       </Group>

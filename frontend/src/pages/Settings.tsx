@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, Group, NumberInput, Paper, Stack, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Badge, Button, Group, NumberInput, Paper, Stack, Switch, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
@@ -17,19 +17,41 @@ const SCHEDULE: [string, string, string][] = [
   ["schedule.comments", "досбор комментов по приросту", "parser.im / Apify"],
   ["schedule.rollup", "пересчёт витрины и правил", "своё"],
 ];
+const WORKER_LABEL: Record<string, string> = {
+  job_runner: "очередь parser.im", discovery: "поиск доноров", donor_intake: "заведение донора",
+  comments_collect: "сбор комментариев", posts_sync: "Apify: посты и счётчики", ai_posts: "ИИ: посты",
+  ai_comments: "ИИ: комментарии", probe_feeder: "подача на пробив", outbox: "отправка наружу", inbox: "приём статусов",
+};
 
 export default function Settings() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["settings"], queryFn: () => api("/settings") });
+  const ops = useQuery({ queryKey: ["ops-status"], queryFn: () => api("/ops/status"), refetchInterval: 10_000 });
   const [v, setV] = useState<Record<string, string>>({});
   useEffect(() => { if (q.data) setV(q.data.values); }, [q.data]);
+  const err = (e: any) => notifications.show({ color: "red", message: e.message });
   const save = useMutation({
-    mutationFn: () => api("/settings", { method: "PUT", body: { values: v } }),
+    mutationFn: () => {
+      const body: Record<string, string> = {};
+      for (const [k, val] of Object.entries(v)) if (!/^(heartbeat|last_run|run_now|ai_cost)\./.test(k)) body[k] = val;
+      return api("/settings", { method: "PUT", body: { values: body } });
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); notifications.show({ color: "green", message: "Сохранено" }); },
-    onError: (e: any) => notifications.show({ color: "red", message: e.message }),
+    onError: err,
+  });
+  const sw = useMutation({
+    mutationFn: (body: any) => api("/ops/switches", { method: "PUT", body }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["ops-status"] }); qc.invalidateQueries({ queryKey: ["settings"] }); },
+    onError: err,
+  });
+  const runNow = useMutation({
+    mutationFn: (name: string) => api(`/ops/run/${name}`, { method: "POST" }),
+    onSuccess: () => notifications.show({ color: "green", message: "Поставлено — воркер подхватит в течение минуты" }),
+    onError: err,
   });
   const set = (k: string, val: any) => setV((s) => ({ ...s, [k]: String(val ?? "") }));
   const env = q.data?.env;
+  const o = ops.data;
   const flag = (ok: boolean) => <Badge size="xs" variant="light" color={ok ? "green" : "red"}>{ok ? "задан" : "нет"}</Badge>;
 
   return (
@@ -38,6 +60,38 @@ export default function Settings() {
         <div><Title order={2}>Настройки</Title><Text c="dimmed" size="sm">общее для всех городов · цены, правила и связки — в каждом городе</Text></div>
         <Button loading={save.isPending} onClick={() => save.mutate()}>Сохранить</Button>
       </Group>
+
+      <Paper mb="md">
+        <Group align="flex-start" grow>
+          <Stack gap="xs">
+            <Text fw={600}>Управление</Text>
+            <Switch label="Сбор включён" description="parser.im и Apify создают задания: посты новых доноров, комментарии, суточный обход" checked={!!o?.collection_enabled} disabled={!o} onChange={(e) => sw.mutate({ collection_enabled: e.currentTarget.checked })} />
+            <Switch label="ИИ включена" description="разметка постов, квалификация комментариев, «кто и где» по кандидатам" checked={!!o?.ai_enabled} disabled={!o} onChange={(e) => sw.mutate({ ai_enabled: e.currentTarget.checked })} />
+            <Text size="xs" c="dimmed">Выключенный сбор не трогает запущенные задания — они дойдут до конца и лягут в базу. Новые не создаются, очередь стоит. Поиск доноров работает всегда.</Text>
+          </Stack>
+          <Stack gap="xs">
+            <Text fw={600}>Сейчас</Text>
+            {o && <>
+              <Text size="sm">parser.im: <span className="mono">{o.parserim.lines_busy} / {o.parserim.lines_total}</span> строк занято · в очереди заданий {o.parserim.queued}</Text>
+              <Text size="sm">ИИ сегодня: <span className="mono">${Number(o.ai_cost_today_usd).toFixed(3)}</span></Text>
+              <Group gap="xs">
+                <Button size="xs" variant="light" loading={runNow.isPending} onClick={() => runNow.mutate("new_posts")}>Новые посты сейчас</Button>
+                <Button size="xs" variant="light" loading={runNow.isPending} onClick={() => runNow.mutate("counters")}>Счётчики сейчас</Button>
+              </Group>
+              <Text size="xs" c="dimmed">последний обход: посты {o.last_run.new_posts || "—"} · счётчики {o.last_run.counters || "—"}</Text>
+            </>}
+          </Stack>
+          <Stack gap={6}>
+            <Text fw={600}>Воркеры</Text>
+            <Group gap={4}>
+              {o && Object.entries(o.workers).map(([k, w]: [string, any]) => (
+                <Badge key={k} size="xs" variant="light" color={w.alive ? "green" : "red"} title={w.last || "не запускался"}>{WORKER_LABEL[k] || k}</Badge>
+              ))}
+            </Group>
+            <Text size="xs" c="dimmed">зелёный — отметился за последние 5 минут</Text>
+          </Stack>
+        </Group>
+      </Paper>
 
       <Group align="flex-start" grow>
         <Stack>
@@ -76,7 +130,7 @@ export default function Settings() {
                 ))}
               </Table.Tbody>
             </Table>
-            <Text size="xs" c="dimmed" mt="xs">Порядок утром важен: новые посты → прирост → досбор, иначе досбор не увидит прироста.</Text>
+            <Text size="xs" c="dimmed" mt="xs">Порядок утром важен: новые посты → прирост → досбор, иначе досбор не увидит прироста. Досбор по приросту стартует сам, как только счётчики обновились.</Text>
           </Paper>
         </Stack>
         <Stack>

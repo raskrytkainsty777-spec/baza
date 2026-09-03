@@ -2,8 +2,8 @@
 
 Что важно знать про этот API (все квирки проверены, подробности в docs/PARSERIM.md):
 
-* Любой не-ASCII символ в параметрах роняет их бэкенд: имя задания транслитерируем,
-  кириллицу в фильтры не шлём вообще.
+* Не-ASCII в `name` роняет их бэкенд — имя транслитерируем. В `links` (теги, ключи)
+  UTF-8 работает, проверено. Кириллицу в фильтры (`white_*`) не шлём вообще.
 * Ошибка на `create` не значит, что задание не создалось — сверяемся со списком.
 * `mode=result` — не JSON: текст с BOM, первая строка — заголовок колонок через `:`,
   двоеточия внутри значений они экранируют сами.
@@ -66,7 +66,7 @@ async def _call(params: dict) -> str:
         raise ParserImError("Не задан PARSERIM_KEY")
     q = {"key": settings.parserim_key, **{k: v for k, v in params.items() if v not in (None, "")}}
     for k, v in q.items():
-        if k != "key" and isinstance(v, str) and not is_ascii(v):
+        if k == "name" and isinstance(v, str) and not is_ascii(v):   # links etc. accept UTF-8 (verified 03.09)
             raise ParserImError(f"parser.im не принимает не-ASCII в параметре {k}")
     async with httpx.AsyncClient(timeout=TIMEOUT) as cl:
         r = await cl.get(BASE_URL, params=q)

@@ -17,6 +17,8 @@ const SORT = [
   { value: "added", label: "дата добавления" }, { value: "username", label: "логин" },
 ];
 
+const STAGE_LABEL: Record<string, string> = { posts: "ждёт сбора постов", posts_run: "собираем посты", ai: "разметка ИИ", comments: "первый сбор комментариев", error: "ошибка" };
+
 export default function Donors() {
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -35,6 +37,11 @@ export default function Donors() {
     status: status === "unclassified" ? "" : status, sort, days, q, limit: 200 };
   const list = useQuery({ queryKey: ["donors", params], queryFn: () => api(`/donors${qs(params)}`) });
 
+  const restart = useMutation({
+    mutationFn: (id: number) => api(`/ops/donors/${id}/restart-intake`, { method: "POST" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["donors"] }); notifications.show({ color: "green", message: "Заведение перезапущено: посты → ИИ → сбор" }); },
+    onError: (e: any) => notifications.show({ color: "red", message: e.message }),
+  });
   const patch = useMutation({
     mutationFn: ({ id, body }: { id: number; body: any }) => api(`/donors/${id}`, { method: "PATCH", body }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["donors"] }); qc.invalidateQueries({ queryKey: ["cities"] }); },
@@ -89,7 +96,7 @@ export default function Donors() {
                 <Table.Td><Checkbox size="xs" checked={sel.includes(d.id)} onChange={(e) => setSel(e.currentTarget.checked ? [...sel, d.id] : sel.filter((x) => x !== d.id))} /></Table.Td>
                 <Table.Td><a className="rowlink mono" href={`https://instagram.com/${d.username}`} target="_blank" rel="noreferrer">{d.username}</a>{d.full_name && <Text size="xs" c="dimmed" className="clip">{d.full_name}</Text>}</Table.Td>
                 <Table.Td>{d.city || <Text span c="dimmed">—</Text>}</Table.Td>
-                <Table.Td><StatusBadge kind="donor" value={d.status} />{d.status === "new" && d.intake_stage && <Text size="xs" c="dimmed">этап: {d.intake_stage}</Text>}</Table.Td>
+                <Table.Td><StatusBadge kind="donor" value={d.status} />{(d.status === "new" || d.status === "unclassified") && d.intake_stage && d.intake_stage !== "done" && <Text size="xs" c={d.intake_stage === "error" ? "red" : "dimmed"}>{STAGE_LABEL[d.intake_stage] || d.intake_stage}</Text>}{(d.intake_stage === "error" || d.status === "paused") && d.status_reason && <Text size="xs" c="dimmed" className="clip">{d.status_reason}</Text>}</Table.Td>
                 <Table.Td className="num">{n(d.followers)}</Table.Td>
                 <Table.Td className="num">{n(d.posts)}</Table.Td>
                 <Table.Td className="num">{d.posts ? `${n(d.selling)} · ${Math.round(d.selling / d.posts * 100)}%` : "—"}</Table.Td>
@@ -105,6 +112,7 @@ export default function Donors() {
                     <Menu.Dropdown>
                       {d.status !== "paused" && <Menu.Item onClick={() => patch.mutate({ id: d.id, body: { status: "paused", status_reason: "пауза вручную" } })}>Пауза (снять с монитора)</Menu.Item>}
                       {d.status === "paused" && <Menu.Item onClick={() => patch.mutate({ id: d.id, body: { status: "monitored", status_reason: "возвращён вручную" } })}>Вернуть на монитор</Menu.Item>}
+                      {(d.intake_stage === "error" || d.status === "paused") && <Menu.Item onClick={() => restart.mutate(d.id)}>Перезапустить заведение</Menu.Item>}
                       <Menu.Label>Перенести в город</Menu.Label>
                       {cityOpts.filter((c) => c.value && c.value !== String(d.city_id)).slice(0, 8).map((c) => (
                         <Menu.Item key={c.value} onClick={() => patch.mutate({ id: d.id, body: { city_id: Number(c.value) } })}>{c.label}</Menu.Item>
