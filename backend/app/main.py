@@ -6,12 +6,12 @@ nginx отдаёт статику фронта и проксирует /api сю
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import auth, cities, dashboard, donors, jobs, posts, search, settings as settings_api
+from .api import auth, cities, dashboard, donors, inbound, jobs, ops, posts, search, settings as settings_api
 from .config import settings
 
 app = FastAPI(
     title="baza",
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
@@ -24,7 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, cities, dashboard, donors, posts, search, jobs, settings_api):
+for r in (auth, cities, dashboard, donors, posts, search, jobs, settings_api, ops, inbound):
     app.include_router(r.router)
 
 

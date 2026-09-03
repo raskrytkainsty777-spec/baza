@@ -9,17 +9,32 @@ import logging
 import signal
 
 from ..config import settings
+from . import (
+    ai_comments, ai_posts, comments_collect, discovery, donor_intake, inbox_worker, job_runner,
+    outbox_worker, posts_sync, probe_feeder,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("scheduler")
 
 RESTART_PAUSE = 15   # секунд между перезапусками упавшего воркера
 
-# (имя, корутина). Заполняется по мере появления воркеров.
-WORKERS: list[tuple[str, callable]] = []
+WORKERS: list[tuple[str, callable]] = [
+    ("job_runner", job_runner.run),
+    ("discovery", discovery.run),
+    ("donor_intake", donor_intake.run),
+    ("comments_collect", comments_collect.run),
+    ("posts_sync", posts_sync.run),
+    ("ai_posts", ai_posts.run),
+    ("ai_comments", ai_comments.run),
+    ("probe_feeder", probe_feeder.run),
+    ("outbox", outbox_worker.run),
+    ("inbox", inbox_worker.run),
+]
 
 
 async def _supervise(name: str, factory):
@@ -36,15 +51,12 @@ async def _supervise(name: str, factory):
 
 
 async def main():
-    log.info("baza-worker: tz=%s, parser.im slots=%d", settings.tz_display,
-             settings.parserim_max_parallel_jobs)
+    log.info("baza-worker: tz=%s, воркеров %d", settings.tz_display, len(WORKERS))
     tasks = [asyncio.create_task(_supervise(n, f), name=n) for n, f in WORKERS]
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
-    if not tasks:
-        log.info("воркеров пока нет — жду сигнала")
     await stop.wait()
     for t in tasks:
         t.cancel()

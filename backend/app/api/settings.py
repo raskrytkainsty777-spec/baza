@@ -22,6 +22,8 @@ DEFAULTS: dict[str, str] = {
     "parserim_lines": "10",                 # строк в тарифе parser.im
     "big_post_threshold": "1000",           # с какого числа комментариев пост досбирается через Apify
     "apify_daily_cap_usd": "10",
+    "collection_enabled": "0",             # master switch: parser.im/Apify jobs are created only when 1
+    "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",
     "schedule.comments": "10:00",
