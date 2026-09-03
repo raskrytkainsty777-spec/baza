@@ -118,6 +118,11 @@ export default function Settings() {
               <NumberInput label="Крупный пост — от комментариев" description="досбор через Apify, а не parser.im" value={Number(v["big_post_threshold"] || 1000)} onChange={(x) => set("big_post_threshold", x)} min={100} />
               <NumberInput label="Потолок Apify, $/день" value={Number(v["apify_daily_cap_usd"] || 10)} onChange={(x) => set("apify_daily_cap_usd", x)} min={0} />
             </Group>
+            <Group grow mt="xs">
+              <NumberInput label="Фильтр f1: последний пост не старше, дн" description="кто не проходит — «неактивен», в базу отклонённых" value={Number(v["f1_lastpost_days"] || 30)} onChange={(x) => set("f1_lastpost_days", x)} min={1} />
+              <NumberInput label="Фильтр f1: подписчиков от" description="0 — без порога" value={Number(v["f1_followers_min"] || 0)} onChange={(x) => set("f1_followers_min", x)} min={0} />
+              <NumberInput label="Фильтр f1: подписчиков до" description="0 — без порога" value={Number(v["f1_followers_max"] || 0)} onChange={(x) => set("f1_followers_max", x)} min={0} />
+            </Group>
             <Text size="xs" c="dimmed" mt="xs">Сбор комментариев всегда parser.im <span className="mono">web=1</span>, без dop и фильтров: 318 комм/мин против 3.6.</Text>
           </Paper>
           <Paper>

@@ -19,7 +19,7 @@ from ..services.ai.client import AiError, chat_json, prompt
 from ..services.apify import client as apify
 from . import imports
 from .common import (
-    add_ai_cost, ai_on, chunks, city_by_name, enqueue_job, heartbeat, log_event, settings_all, utcnow,
+    add_ai_cost, ai_on, as_int, chunks, city_by_name, enqueue_job, heartbeat, log_event, settings_all, utcnow,
 )
 
 log = logging.getLogger("discovery")
@@ -120,6 +120,9 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
 # ── фильтр ───────────────────────────────────────────────────────────────────
 
 async def _start_filter(db: AsyncSession, t: LgSearchTask, jobs: list[LgJob]) -> None:
+    values = await settings_all(db)
+    f1 = {"lastpost_days": as_int(values, "f1_lastpost_days", F1_LASTPOST_DAYS),
+          "followers_from": as_int(values, "f1_followers_min", 0), "followers_to": as_int(values, "f1_followers_max", 0)}
     made = 0
     if t.kind in ("hashtag", "keyword"):
         for j in jobs:
@@ -128,7 +131,7 @@ async def _start_filter(db: AsyncSession, t: LgSearchTask, jobs: list[LgJob]) ->
             for tid in j.external_id.split(","):
                 await enqueue_job(db, provider="parserim", kind="filter",
                                   purpose=f"Фильтр f1 по заданию {tid} · {t.title}",
-                                  payload={"source_tid": tid, "lastpost_days": F1_LASTPOST_DAYS},
+                                  payload={"source_tid": tid, **f1},
                                   lines=1, search_task_id=t.id)
                 made += 1
     if not made:
@@ -138,7 +141,7 @@ async def _start_filter(db: AsyncSession, t: LgSearchTask, jobs: list[LgJob]) ->
         for chunk in chunks(logins, 10):
             await enqueue_job(db, provider="parserim", kind="filter",
                               purpose=f"Фильтр f1: {len(chunk)} логинов · {t.title}",
-                              payload={"logins": chunk, "lastpost_days": F1_LASTPOST_DAYS},
+                              payload={"logins": chunk, **f1},
                               lines=len(chunk), search_task_id=t.id)
             made += 1
     if not made:

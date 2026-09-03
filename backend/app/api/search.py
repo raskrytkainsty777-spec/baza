@@ -51,7 +51,19 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
     rows = (await db.execute(select(LgSearchTask).order_by(desc(LgSearchTask.created_at)).limit(limit))).scalars().all()
     unclear_total = (await db.execute(
         select(func.count()).select_from(LgCandidate).where(LgCandidate.state == "unclear"))).scalar() or 0
-    return {"items": [_task_dto(t) for t in rows], "unclear_total": unclear_total}
+    # пока идёт сбор, число авторов живёт в задании parser.im, а не у нас
+    live = dict((await db.execute(
+        select(LgJob.search_task_id, func.coalesce(func.sum(LgJob.count), 0))
+        .where(LgJob.kind.in_(["search", "apify_recommend"]), LgJob.search_task_id.isnot(None))
+        .group_by(LgJob.search_task_id))).all())
+    items = []
+    for t in rows:
+        d = _task_dto(t)
+        d["collected_live"] = int(live.get(t.id, 0))
+        if t.stage == "collecting":
+            d["collected"] = max(d["collected"] or 0, d["collected_live"])
+        items.append(d)
+    return {"items": items, "unclear_total": unclear_total}
 
 
 @router.post("/tasks", status_code=201)

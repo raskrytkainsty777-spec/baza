@@ -52,7 +52,9 @@ async def _create(job: LgJob) -> list[str]:
         return await pim.create_authors_by_hashtags(name, p.get("values") or [])
     if job.kind == "filter":
         source = p.get("source_tid") or p.get("logins") or []
-        return await pim.create_filter(name, source, lastpost_days=int(p.get("lastpost_days") or 30))
+        return await pim.create_filter(name, source, lastpost_days=int(p.get("lastpost_days") or 30),
+                                       followers_from=int(p.get("followers_from") or 0),
+                                       followers_to=int(p.get("followers_to") or 0))
     if job.kind == "posts_intake":
         return await pim.create_posts(name, p.get("logins") or [], per_account=int(p.get("limit") or 60))
     if job.kind == "comments":
