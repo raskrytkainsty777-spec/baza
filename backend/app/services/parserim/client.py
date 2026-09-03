@@ -202,8 +202,12 @@ def parse_result(body: str) -> list[dict]:
     """Текст выгрузки → список словарей по заголовку первой строки."""
     body = (body or "").lstrip("﻿")
     lines = [ln for ln in body.replace("\r\n", "\n").split("\n") if ln.strip()]
-    if not lines or ":" not in lines[0]:
+    if not lines:
         return []
+    if ":" not in lines[0]:
+        # одна колонка (так отдают задания, созданные на их сайте с spec=2): заголовок — имя поля
+        key = lines[0].strip().lstrip("\ufeff") or "login"
+        return [{key: ln.strip()} for ln in lines[1:]]
     keys = [h.strip() for h in lines[0].split(":")]
     out = []
     for ln in lines[1:]:
