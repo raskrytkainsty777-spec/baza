@@ -33,10 +33,17 @@
  01 поиск            задачи: теги / ключи (p3/p5 act=5) · рекомендации (Apify relatedProfiles, сиды выбирает
                      оператор галочками в «Донорах»). Несколько задач параллельно, у каждой свои этапы
  02 фильтр f1        по контактам задачи: активен ≤30 дн, подписчики, био → имя, описание, адрес
- 03 город            ИИ по имени + описанию + адресу → город и уверенность
- 04 распределить     кнопка: в город уходят только 100%-уверенные, статус «новый». Неразобранные остаются в задаче
- 05 новый донор      p1 act=6 — все посты за 45 дней; ИИ размечает каждый: продающий? оффер, крючок, категория, призыв, код
- 06 первый сбор      p2 act=3 — комментарии со всех продающих постов, отсев по дате комментария (≤ comment_fresh_days)
+ 03 ИИ: кто и где    по имени + описанию + адресу: (а) вид деятельности — риелтор / застройщик / агентство берём,
+                     ипотечный брокер / стройка / ремонт отсеиваем (критерии — в промпте, Настройки);
+                     (б) город и уверенность
+ 04 распределить     кнопка: в город уходят только 100%-уверенные, статус «новый».
+                     Неразобранные (город неясен, два города) — отдельная ветка: донор «неразобранный»,
+                     посты собираем так же, а ИИ по каждому продающему посту определяет ГОРОД → пост (источник)
+                     уезжает в свой город. Донор при этом города не имеет
+ 05 новый донор      p1 act=6 — все посты за intake_days (настройка, по умолчанию 45); ИИ размечает каждый:
+                     продающий? оффер, крючок, категория, призыв, код; для неразобранных — ещё и город
+ 06 первый сбор      p2 act=3 (web=1, без dop и без фильтров по автору) — комментарии со всех продающих постов,
+                     отсев по дате комментария (≤ comment_fresh_days) и ответов самого донора — у себя
  07 на монитор       донор становится «старым»
 
  ЕЖЕДНЕВНО, по расписанию из настроек
@@ -53,6 +60,9 @@
 
 **Разделение инструментов.** parser.im (10 одновременных строк: логинов / тегов / ссылок, сверх — очередь):
 поиск, фильтр, посты нового донора, все комментарии. Apify: только новые посты и счётчики, ежедневно.
+**Никакого `dop` и никаких фильтров по автору в заданиях сбора** — это фильтрация во время парсинга, она
+роняет скорость в сто раз (3.6 → 318 комм/мин). Телефоны только через пробив: в профилях инстаграма
+могут быть номера администраторов. Сбор комментариев — `web=1`.
 Приоритет строк parser.im, пока их 10: досбор по приросту → посты новых доноров → f1 → поиск.
 Встроенной фильтрацией parser.im не пользуемся — медленная. Мониторинг `m1` не используем — держит слоты.
 
@@ -82,12 +92,21 @@ send_mode                        auto | manual
 apify_daily_cap_usd              потолок расходов Apify в сутки
 ```
 
+### `lg_settings` — общие настройки (ключ → значение)
+```
+intake_days                      окно постов при заводе донора (45)
+comment_fresh_days_default       окно свежести комментариев по умолчанию
+parserim_lines                   строк в тарифе (10)
+schedule.*                       расписание кронов
+prompt.post · prompt.comment · prompt.city · prompt.activity   промпты ИИ, редактируются в UI
+```
+
 ### `lg_search_tasks` — задачи поиска доноров (глобально, не по городам)
 ```
 id · kind                        hashtag | keyword | recommendation
 input                            теги / ключи / список сидов
 stage                            collecting → filtering → classifying → ready → distributed
-collected · passed · rejected · confident · unclear
+collected · passed · rejected_inactive · rejected_activity · confident · unclear
 created_at · stage_changed_at
 ```
 Город кандидата — результат f1 + ИИ, а не вход поиска. Кандидаты (`lg_candidates`: task_id, username,
@@ -99,7 +118,7 @@ id · username (unique) · ig_id
 full_name · bio · followers · following · posts_count · last_post_at · is_private · is_business
 roles                            donor / commenter / both
 city_id · city_source            ai | f1 | manual
-phone · email · phone_source     probe | f1 | manual
+phone · phone_source             probe | manual — только через пробив, из инстаграма номера не берём
 probe_status · probed_at · probe_raw
 first_seen_at · updated_at
 ```
@@ -108,7 +127,8 @@ first_seen_at · updated_at
 ### `lg_donors` — донор в городе (один аккаунт может работать по нескольким)
 ```
 id · account_id · city_id
-status                           new / monitored / paused
+status                           new / monitored / paused / unclassified
+                                 unclassified — город донора неясен; его продающие посты получают город от ИИ
 intake_stage                     для new: posts → ai → comments → done
 found_via · search_task_id       hashtag | keyword | recommendation | manual
 added_at · status_changed_at · status_reason
@@ -117,7 +137,7 @@ added_at · status_changed_at · status_reason
 
 ### `lg_posts` — посты и рилсы доноров
 ```
-id · shortcode (unique) · donor_id · city_id
+id · shortcode (unique) · donor_id · city_id · city_source      donor | ai (для неразобранных доноров)
 url · caption · published_at · product_type      feed | clips | carousel
 views · likes
 comments_count · comments_count_prev · comments_delta · last_growth_at · last_checked_at
@@ -218,7 +238,7 @@ comments · leads · probed · sent · applications · quals · deals · spend_c
 | `p5 act=5` | Авторы постов по ключевым словам | Ловит тех, кто тегов не ставит |
 | `f1` | Отбор и догрузка данных | Источник — id предыдущего задания. `lastpost`, `followers1/2`, `white_bio`, `white_address`. Отдаёт телефон, email, имя, город, описание |
 | `p1 act=6` | Все посты нового донора за 45 дней (разово) | `spec=1,2,4,5,6,7`, `limit2` на аккаунт; окно по дате режем у себя |
-| `p2 act=3` | Комментарии по ссылкам на посты | `spec=1,2,3,4,6`; много постов в одном задании; фильтры по автору (`followers1/2`, `private`, `posts_zero`) |
+| `p2 act=3` | Комментарии по ссылкам на посты | `spec=1,2,3,4,6`, `web=1`; много постов в одном задании; **без `dop` и без фильтров** — 318 комм/мин против 3.6 |
 
 ### Apify
 | Операция | Ритм | Актор / параметр |
