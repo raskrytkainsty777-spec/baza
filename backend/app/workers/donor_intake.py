@@ -26,7 +26,7 @@ async def run():
             async with SessionLocal() as db:
                 values = await settings_all(db)
                 if values.get("collection_enabled") == "1":
-                    await _stage_posts(db)
+                    await _stage_posts(db, values.get("unclassified_collect_posts") == "1")
                 await _stage_ai_done(db)
                 await _stage_comments_done(db, as_int(values, "intake_days", 45))
                 await heartbeat(db, "donor_intake")
@@ -35,12 +35,16 @@ async def run():
         await asyncio.sleep(POLL)
 
 
-async def _stage_posts(db: AsyncSession) -> None:
+async def _stage_posts(db: AsyncSession, unclassified_on: bool) -> None:
+    """Посты собираем только там, где это включено: флаг города, а для доноров без города —
+    отдельная настройка unclassified_collect_posts (по умолчанию выключена)."""
+    allowed = LgCity.collect_posts.is_(True)
+    if unclassified_on:
+        allowed = or_(LgDonor.city_id.is_(None), allowed)
     rows = (await db.execute(
         select(LgDonor, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id)
         .outerjoin(LgCity, LgCity.id == LgDonor.city_id)
-        .where(LgDonor.status.in_(["new", "unclassified"]), LgDonor.intake_stage == "posts",
-               or_(LgDonor.city_id.is_(None), LgCity.collect_posts.is_(True)))
+        .where(LgDonor.status.in_(["new", "unclassified"]), LgDonor.intake_stage == "posts", allowed)
         .order_by(LgDonor.id))).all()
     for chunk in chunks(rows, 10):
         logins = [u for _, u in chunk]

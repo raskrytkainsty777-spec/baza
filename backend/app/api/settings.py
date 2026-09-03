@@ -28,6 +28,7 @@ DEFAULTS: dict[str, str] = {
     "collection_enabled": "1",             # master: posts of new donors, Apify daily cycle (per-city flags decide where)
     "comments_enabled": "1",               # master: p2 / Apify comment collection (per-city flags decide where)
     "auto_distribute": "1",                # confident candidates become donors without the button
+    "unclassified_collect_posts": "0",     # donors without a city: collect posts (p1) so AI can place posts by city
     "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",
