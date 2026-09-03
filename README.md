@@ -52,11 +52,18 @@ npm ci && npm run dev
 
 ## Сервер
 
-`95.81.103.196`, Ubuntu 24.04. Две службы: `baza-api`, `baza-worker`. nginx отдаёт `frontend/dist`
-и проксирует `/api`. Деплой:
+`95.81.103.196`, Ubuntu 24.04. Код в `/opt/baza` под пользователем `baza`. Две службы: `baza-api`
+(uvicorn :8000), `baza-worker` (планировщик). nginx отдаёт `frontend/dist` и проксирует `/api`.
+PostgreSQL 16, база и роль `baza`. Секреты — `/opt/baza/.env`.
+
+Деплой идёт через bare-репозиторий `/opt/baza.git` на самом сервере, не через GitHub —
+чтобы не зависеть от deploy-ключей. Пушим в оба remote, потом запускаем скрипт:
 
 ```bash
-ssh root@95.81.103.196 /opt/baza/deploy/deploy.sh
+git push origin main && git push server main && ssh root@95.81.103.196 /opt/baza/deploy/deploy.sh
 ```
 
-Скрипт: `git pull` → `pip install` → `alembic upgrade head` → `npm ci && npm run build` → `systemctl restart`.
+Один раз добавить remote: `git remote add server root@95.81.103.196:/opt/baza.git`.
+
+Скрипт: checkout из `local` → `pip install` → `alembic upgrade head` → `npm ci && npm run build` → `systemctl restart`.
+Логи: `journalctl -u baza-api -f`, `journalctl -u baza-worker -f`.
