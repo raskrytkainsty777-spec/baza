@@ -12,6 +12,10 @@ set -euo pipefail
 APP=/opt/baza
 cd "$APP"
 
+# Всё под /opt/baza принадлежит baza. Раз запущенный от root git оставил там
+# root-овые объекты — и baza потом не смог ни fetch, ни checkout.
+chown -R baza:baza "$APP"
+
 echo "▶ pull (local bare)"
 sudo -u baza git fetch -q local main
 sudo -u baza git checkout -q -f -B main local/main
