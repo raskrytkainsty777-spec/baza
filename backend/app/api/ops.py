@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..models import LgCity, LgDonor, LgJob, LgLead, LgSetting
 from ..workers.common import set_value, settings_all
+from ..workers import job_runner
 from .deps import require_token
 
 router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(require_token)])
@@ -53,7 +54,8 @@ async def status(db: AsyncSession = Depends(get_db)):
         "collection_enabled": values.get("collection_enabled") == "1",
         "comments_enabled": values.get("comments_enabled") == "1",
         "ai_enabled": values.get("ai_enabled", "1") == "1",
-        "parserim": {"lines_busy": int(lines_busy), "lines_total": int(values.get("parserim_lines") or 10), "queued": queued},
+        "parserim": {"lines_busy": int(lines_busy), "lines_total": int(values.get("parserim_lines") or 10), "queued": queued,
+                     "remote_queued": len(job_runner._remote_queued)},
         "ai_cost_today_usd": float(values.get(f"ai_cost.{date.today().isoformat()}") or 0),
         "last_run": {k: values.get(f"last_run.{k}") for k in RUNNABLE},
         "workers": hb,

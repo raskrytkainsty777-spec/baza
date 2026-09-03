@@ -24,6 +24,13 @@ POLL = 12
 DONE_STATES = ("completed", "finished", "error", "deleted")
 REMOTE_KEEP_DAYS = 3
 
+# задания, у которых хотя бы один tid стоит в очереди самого parser.im: тариф исчерпан,
+# как бы мы ни считали строки у себя — новых не запускаем, пока очередь не рассосётся
+_remote_queued: set[int] = set()
+
+# доля строк тарифа на вид работ в первом проходе; остаток во втором проходе — любому по приоритету
+SHARES = {"comments": 0.5, "posts_intake": 0.3, "filter": 0.2, "search": 0.2}
+
 
 async def run():
     while True:
@@ -163,6 +170,10 @@ async def _poll_running(db: AsyncSession) -> None:
         if not statuses:
             continue
         job.count = max(job.count or 0, counts)
+        if "queue" in statuses:
+            _remote_queued.add(job.id)
+        else:
+            _remote_queued.discard(job.id)
         if all(s in DONE_STATES for s in statuses):
             job.finished_at = utcnow()
             await _complete(db, job, errors[0] if errors else None)
@@ -171,41 +182,64 @@ async def _poll_running(db: AsyncSession) -> None:
 
 
 async def _start_queued(db: AsyncSession) -> None:
+    """Запуск очередных заданий. Два прохода: сначала каждому виду работ — не больше его доли
+    строк (SHARES), чтобы комментарии не выжирали всё, а посты новых доноров не ждали часами;
+    потом остаток отдаём любому по приоритету. Если parser.im держит хоть одно наше задание
+    в своей очереди — тариф исчерпан, новых не запускаем, как бы мы ни считали у себя."""
     values = await settings_all(db)
     max_lines = as_int(values, "parserim_lines", 10)
     collecting = values.get("collection_enabled") == "1"
     comments_on = values.get("comments_enabled") == "1"
-    busy = (await db.execute(select(func.coalesce(func.sum(LgJob.lines), 0)).where(
-        LgJob.provider == "parserim", LgJob.state == "running"))).scalar() or 0
+    busy = 0
+    busy_by_kind: dict[str, int] = {}
+    for kind, lines in (await db.execute(select(LgJob.kind, func.coalesce(func.sum(LgJob.lines), 0)).where(
+            LgJob.provider == "parserim", LgJob.state == "running").group_by(LgJob.kind))).all():
+        busy_by_kind[kind] = int(lines)
+        busy += int(lines)
     queued = (await db.execute(select(LgJob).where(
         LgJob.provider == "parserim", LgJob.state == "queued")
         .order_by(LgJob.priority, LgJob.created_at))).scalars().all()
-    for job in queued:
-        if job.kind == "posts_intake" and not collecting:
-            continue
-        if job.kind == "comments" and not comments_on:
-            continue
-        if busy + (job.lines or 1) > max_lines:
-            continue
-        try:
-            tids = await _create(job)
-        except pim.ParserImError as e:
-            msg = str(e)
-            if "лимит" in msg:
-                log.warning("parser.im: лимит запросов, ждём")
-                break
-            job.state, job.error, job.finished_at = "error", msg[:500], utcnow()
-            if job.kind == "posts_intake":
-                await _after_posts(db, job, ok=False)
-            await log_event(db, "job.create_error", f"{job.purpose}: {msg}", entity="job", entity_id=job.id, level="error")
+    if not queued:
+        return
+    if _remote_queued:
+        log.info("parser.im: %d наших заданий стоят в их очереди — новые не запускаем (у нас занято %d/%d)",
+                 len(_remote_queued), busy, max_lines)
+        return
+    for pass_no in (1, 2):
+        for job in queued:
+            if job.state != "queued":
+                continue
+            if job.kind == "posts_intake" and not collecting:
+                continue
+            if job.kind == "comments" and not comments_on:
+                continue
+            need = job.lines or 1
+            if busy + need > max_lines:
+                continue
+            if pass_no == 1:
+                cap = int(max_lines * SHARES.get(job.kind, 0.2))
+                if busy_by_kind.get(job.kind, 0) + need > max(cap, need):
+                    continue
+            try:
+                tids = await _create(job)
+            except pim.ParserImError as e:
+                msg = str(e)
+                if "лимит" in msg:
+                    log.warning("parser.im: лимит запросов, ждём")
+                    return
+                job.state, job.error, job.finished_at = "error", msg[:500], utcnow()
+                if job.kind == "posts_intake":
+                    await _after_posts(db, job, ok=False)
+                await log_event(db, "job.create_error", f"{job.purpose}: {msg}", entity="job", entity_id=job.id, level="error")
+                await db.commit()
+                continue
+            job.external_id = ",".join(tids)[:60]
+            job.state, job.started_at = "running", utcnow()
+            busy += need
+            busy_by_kind[job.kind] = busy_by_kind.get(job.kind, 0) + need
             await db.commit()
-            continue
-        job.external_id = ",".join(tids)[:60]
-        job.state, job.started_at = "running", utcnow()
-        busy += job.lines or 1
-        await db.commit()
-        log.info("запущено %s #%s → %s (%d строк, занято %d/%d)", job.kind, job.id, job.external_id, job.lines, busy, max_lines)
-        await asyncio.sleep(1.5)
+            log.info("запущено %s #%s → %s (%d строк, занято %d/%d)", job.kind, job.id, job.external_id, need, busy, max_lines)
+            await asyncio.sleep(1.5)
 
 
 async def _cleanup_remote(db: AsyncSession) -> None:

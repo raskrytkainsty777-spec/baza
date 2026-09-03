@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Badge, Button, Group, Paper, Select, Stack, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Badge, Button, Group, NumberInput, Paper, Select, Stack, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconArrowRight } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -37,6 +37,7 @@ export default function Search() {
   const [text, setText] = useState("");
   const [assignCity, setAssignCity] = useState("");
   const [tid, setTid] = useState("");
+  const [tidLines, setTidLines] = useState<number | string>(1);
   const [sel, setSel] = useState<number[]>([]);
 
   const tasks = useQuery({ queryKey: ["search-tasks"], queryFn: () => api("/search/tasks"), refetchInterval: 20_000 });
@@ -49,7 +50,7 @@ export default function Search() {
     onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
   });
   const adopt = useMutation({
-    mutationFn: () => api("/search/adopt", { method: "POST", body: { tid: tid.trim() } }),
+    mutationFn: () => api("/search/adopt", { method: "POST", body: { tid: tid.trim(), lines: Number(tidLines) || 1 } }),
     onSuccess: (t: any) => { setTid(""); bust(); notifications.show({ color: "green", message: `Подключено: ${t.title}` }); }, onError: err,
   });
   const distribute = useMutation({ mutationFn: (id: number) => api(`/search/tasks/${id}/distribute`, { method: "POST" }), onSuccess: (r: any) => { bust(); notifications.show({ color: "green", message: `В города ушло ${r.distributed}` }); }, onError: err });
@@ -74,6 +75,7 @@ export default function Search() {
         </Group>
         <Group gap="xs" mt="sm" align="flex-end">
           <TextInput w={200} size="xs" label="Задание уже создано на сайте parser.im?" placeholder="tid, например 5531333" value={tid} onChange={(e) => setTid(e.currentTarget.value)} />
+          <NumberInput w={150} size="xs" label="строк в нём" description="тегов или ключей" min={1} value={tidLines} onChange={setTidLines} />
           <Button size="xs" variant="light" loading={adopt.isPending} disabled={!tid.trim()} onClick={() => adopt.mutate()}>Подключить</Button>
           <Text size="xs" c="dimmed">p3 по тегам или p5 по ключам · без пересбора: результат заберём, когда задание закончится, дальше f1 → ИИ</Text>
         </Group>

@@ -35,6 +35,7 @@ class Assign(BaseModel):
 class Adopt(BaseModel):
     tid: str                        # id задания на parser.im
     kind: str | None = None         # hashtag | keyword; пусто — по типу задания (p3 / p5)
+    lines: int = 1                  # сколько строк тарифа занимает: тегов / ключей внутри задания
 
 
 def _task_dto(t: LgSearchTask) -> dict:
@@ -125,7 +126,7 @@ async def adopt(body: Adopt, db: AsyncSession = Depends(get_db)):
     except ValueError:
         count = 0
     db.add(LgJob(provider="parserim", external_id=tid, kind="search", purpose=f"Поиск авторов (подключено): {name}",
-                 payload={"kind": kind, "values": [], "adopted": True}, lines=1, priority=40, state="running",
+                 payload={"kind": kind, "values": [], "adopted": True}, lines=max(1, body.lines), priority=40, state="running",
                  search_task_id=t.id, count=count, started_at=datetime.now(timezone.utc)))
     db.add(LgEvent(kind="search.adopted", entity="search_task", entity_id=t.id,
                    message=f"Подключено задание parser.im {tid} «{name}», статус {st.get('tid_status')}, авторов {count}"))
