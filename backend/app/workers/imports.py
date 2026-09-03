@@ -64,10 +64,10 @@ F1_MAP = {
     "name": "full_name", "full_name": "full_name", "fullname": "full_name", "full name": "full_name",
     "city": "address", "address": "address", "city_address": "address", "location": "address", "city address": "address",
     "description": "bio", "bio": "bio", "biography": "bio", "desc": "bio",
-    "followers": "followers", "subscribers": "followers", "followers_count": "followers",
-    "posts": "posts_count", "media": "posts_count", "posts_count": "posts_count", "publications": "posts_count",
+    "followers": "followers", "subscribers": "followers", "followers_count": "followers", "fol_cnt": "followers",
+    "posts": "posts_count", "media": "posts_count", "posts_count": "posts_count", "publications": "posts_count", "post_cnt": "posts_count",
     "last_post": "last_post_at", "lastpost": "last_post_at", "last_post_date": "last_post_at",
-    "date_last_post": "last_post_at", "last_publication": "last_post_at", "last post": "last_post_at",
+    "date_last_post": "last_post_at", "last_publication": "last_post_at", "last post": "last_post_at", "post_date": "last_post_at",
 }
 
 
@@ -97,7 +97,8 @@ async def import_filter(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
         c.ig_id = c.ig_id or (mapped.get("ig_id") or None)
         c.full_name = (mapped.get("full_name") or "")[:300] or c.full_name
         c.bio = mapped.get("bio") or c.bio
-        c.address = (mapped.get("address") or "")[:300] or c.address
+        addr = (mapped.get("address") or "").strip()
+        c.address = (addr[:300] if addr and addr != "0" else None) or c.address   # parser.im: пустой город = "0"
         c.followers = to_int(mapped.get("followers")) if mapped.get("followers") is not None else c.followers
         c.posts_count = to_int(mapped.get("posts_count")) if mapped.get("posts_count") is not None else c.posts_count
         if mapped.get("last_post_at"):
