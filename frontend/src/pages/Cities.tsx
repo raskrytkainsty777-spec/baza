@@ -32,7 +32,7 @@ export function Cities() {
         <Table>
           <Table.Thead><Table.Tr>
             <Table.Th>Город</Table.Th><Table.Th>Доноров<br /><span className="muted" style={{ textTransform: "none", fontWeight: 400 }}>новые / монитор / пауза</span></Table.Th>
-            <Table.Th>Постов</Table.Th><Table.Th>Продающих</Table.Th><Table.Th>В сборе</Table.Th><Table.Th>Лидов</Table.Th><Table.Th>Непробитых</Table.Th><Table.Th>Пробив</Table.Th><Table.Th>CRM</Table.Th>
+            <Table.Th>Постов</Table.Th><Table.Th>Продающих</Table.Th><Table.Th>В сборе</Table.Th><Table.Th>Лидов</Table.Th><Table.Th>Непробитых</Table.Th><Table.Th>Сбор</Table.Th><Table.Th>Пробив</Table.Th><Table.Th>CRM</Table.Th>
           </Table.Tr></Table.Thead>
           <Table.Tbody>
             {rows.map((c) => (
@@ -41,6 +41,7 @@ export function Cities() {
                 <Table.Td className="num">{c.donors_new} / {c.donors_monitored} / {c.donors_paused}</Table.Td>
                 <Table.Td className="num">{n(c.posts)}</Table.Td><Table.Td className="num">{n(c.posts_selling)}</Table.Td><Table.Td className="num">{n(c.posts_active)}</Table.Td>
                 <Table.Td className="num">{n(c.leads)}</Table.Td><Table.Td className="num">{n(c.leads_unprobed)}</Table.Td>
+                <Table.Td><Text size="xs" c={c.collect_posts || c.collect_comments ? "green.8" : "dimmed"}>{[c.collect_posts ? "посты" : "", c.collect_comments ? "комменты" : ""].filter(Boolean).join(" + ") || "выкл"}</Text></Table.Td>
                 <Table.Td><Text size="xs" c={c.probe_enabled ? "green.8" : "dimmed"}>{c.probe_enabled ? `вкл · ${c.probe_mode === "auto" ? "авто" : "вручную"}` : "выкл"}</Text></Table.Td>
                 <Table.Td><Text size="xs" c={c.crm_webhook_url ? "green.8" : "dimmed"}>{c.crm_webhook_url ? "настроен" : "—"}</Text></Table.Td>
               </Table.Tr>
@@ -70,7 +71,7 @@ export function CityPage() {
   const save = useMutation({
     mutationFn: () => {
       const body: any = {};
-      for (const k of ["name", "is_active", "cost_per_contact", "cost_per_handling", "comment_fresh_days", "post_freeze_days", "donor_pause_days", "resend_after_days", "probe_mode", "probe_enabled", "crm_webhook_url", "send_mode"]) body[k] = f[k];
+      for (const k of ["name", "is_active", "collect_posts", "collect_comments", "cost_per_contact", "cost_per_handling", "comment_fresh_days", "post_freeze_days", "donor_pause_days", "resend_after_days", "probe_mode", "probe_enabled", "crm_webhook_url", "send_mode"]) body[k] = f[k];
       if (f.probe_hook_token) body.probe_hook_token = f.probe_hook_token;
       if (f.crm_secret) body.crm_secret = f.crm_secret;
       return api(`/cities/${id}`, { method: "PATCH", body });
@@ -150,7 +151,10 @@ export function CityPage() {
           <Paper>
             <Text fw={600} mb="xs">Город</Text>
             <TextInput label="Название" value={f.name || ""} onChange={(e) => set("name", e.currentTarget.value)} mb="xs" />
-            <Switch label="Активен" checked={!!f.is_active} onChange={(e) => set("is_active", e.currentTarget.checked)} />
+            <Switch label="Активен" checked={!!f.is_active} onChange={(e) => set("is_active", e.currentTarget.checked)} mb="sm" />
+            <Switch label="Собирать посты" description="новые доноры этого города сразу уходят в сбор постов (p1 → ИИ), потом суточный обход Apify. Кто появится позже — подхватится сам" checked={!!f.collect_posts} onChange={(e) => set("collect_posts", e.currentTarget.checked)} mb="xs" />
+            <Switch label="Собирать комментарии" description="первый сбор по продающим постам за окно и досбор по приросту" checked={!!f.collect_comments} onChange={(e) => set("collect_comments", e.currentTarget.checked)} />
+            <Text size="xs" c="dimmed" mt="xs">Главные выключатели в Настройках должны быть включены — они останавливают всё разом.</Text>
           </Paper>
           <Paper>
             <Text fw={600} mb="xs">Цены</Text>

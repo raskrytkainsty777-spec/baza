@@ -60,7 +60,7 @@ async def _pass(db: AsyncSession, values: dict) -> None:
         .join(LgDonor, LgDonor.id == LgPost.donor_id)
         .join(IgAccount, IgAccount.id == LgPost.account_id)
         .join(LgCity, LgCity.id == LgPost.city_id)
-        .where(LgCity.is_active.is_(True),
+        .where(LgCity.is_active.is_(True), LgCity.collect_comments.is_(True),
                LgDonor.status.in_(["new", "unclassified", "monitored"]),
                LgPost.monitor_status.in_(["active", "forced"]),
                or_(LgPost.is_selling.is_(True), LgPost.monitor_status == "forced"),

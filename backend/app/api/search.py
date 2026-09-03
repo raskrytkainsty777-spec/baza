@@ -13,12 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgEvent, LgJob, LgReject, LgSearchTask
+from ..services.donors import CONFIDENT, distribute_task, make_donor
 from ..services.parserim import client as pim
 from .deps import require_token
 
 router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_token)])
 
-CONFIDENT = 0.9
 
 
 class TaskCreate(BaseModel):
@@ -174,53 +174,16 @@ async def list_candidates(
     } for c, city_name in rows]}
 
 
-async def _make_donor(db: AsyncSession, c: LgCandidate, city_id: int | None, task: LgSearchTask) -> bool:
-    """Кандидат → аккаунт + донор. Возвращает False, если такой донор уже есть."""
-    acc = (await db.execute(select(IgAccount).where(IgAccount.username == c.username))).scalar_one_or_none()
-    if acc is None:
-        acc = IgAccount(username=c.username, ig_id=c.ig_id, full_name=c.full_name, bio=c.bio,
-                        address=c.address, followers=c.followers, posts_count=c.posts_count,
-                        last_post_at=c.last_post_at, roles="donor", activity_kind=c.activity_kind,
-                        city_id=city_id, city_source="ai" if city_id else None)
-        db.add(acc)
-        await db.flush()
-    else:
-        acc.roles = "donor" if acc.roles == "donor" else "both"
-        if city_id and not acc.city_id:
-            acc.city_id, acc.city_source = city_id, "ai"
-    q = select(LgDonor).where(LgDonor.account_id == acc.id)
-    q = q.where(LgDonor.city_id == city_id) if city_id else q.where(LgDonor.city_id.is_(None))
-    if (await db.execute(q)).scalar_one_or_none():
-        return False
-    db.add(LgDonor(account_id=acc.id, city_id=city_id, status="new" if city_id else "unclassified",
-                   intake_stage="posts", found_via=task.kind, search_task_id=task.id,
-                   status_reason=f"из задачи поиска #{task.id}"))
-    return True
-
-
 @router.post("/tasks/{task_id}/distribute")
 async def distribute(task_id: int, db: AsyncSession = Depends(get_db)):
-    """Уверенные (≥0.9, деятельность подходит) → в свои города статусом «новый»."""
+    """Уверенные (≥0.9, деятельность подходит) → в свои города статусом «новый».
+    При включённом auto_distribute воркер делает это сам; кнопка — запасной путь."""
     t = await db.get(LgSearchTask, task_id)
     if not t:
         raise HTTPException(404, "Задача не найдена")
-    cands = (await db.execute(select(LgCandidate).where(
-        LgCandidate.task_id == task_id, LgCandidate.state == "classified",
-        LgCandidate.city_id.isnot(None), LgCandidate.city_confidence >= CONFIDENT,
-        LgCandidate.activity_ok.isnot(False)))).scalars().all()
-    made = 0
-    for c in cands:
-        if await _make_donor(db, c, c.city_id, t):
-            made += 1
-        c.state = "distributed"
-    t.distributed = (t.distributed or 0) + made
-    if t.stage == "ready":
-        t.stage = "distributed"
-        t.stage_changed_at = datetime.now(timezone.utc)
-    db.add(LgEvent(kind="search.distributed", entity="search_task", entity_id=t.id,
-                   message=f"Распределено по городам: {made} из {len(cands)}"))
+    made, considered = await distribute_task(db, t)
     await db.commit()
-    return {"distributed": made, "considered": len(cands)}
+    return {"distributed": made, "considered": considered}
 
 
 @router.post("/candidates/assign")
@@ -233,7 +196,7 @@ async def assign(body: Assign, db: AsyncSession = Depends(get_db)):
     made = 0
     for c in cands:
         t = await db.get(LgSearchTask, c.task_id)
-        if await _make_donor(db, c, body.city_id, t):
+        if await make_donor(db, c, body.city_id, t):
             made += 1
         c.state = "distributed"
         c.city_id = body.city_id

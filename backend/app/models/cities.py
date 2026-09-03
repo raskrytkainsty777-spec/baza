@@ -19,6 +19,9 @@ class LgCity(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # что в этом городе делать автоматически: посты новых доноров + суточный обход; сбор комментариев
+    collect_posts: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    collect_comments: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     # цены — для расчёта стоимости лида/квала/сделки; в лид кладутся снимком
     cost_per_contact: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, server_default="0")

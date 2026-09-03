@@ -73,7 +73,7 @@ async def _monitored(db: AsyncSession) -> dict[str, LgDonor]:
     rows = (await db.execute(
         select(LgDonor, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id)
         .join(LgCity, LgCity.id == LgDonor.city_id)
-        .where(LgDonor.status == "monitored", LgCity.is_active.is_(True)))).all()
+        .where(LgDonor.status == "monitored", LgCity.is_active.is_(True), LgCity.collect_posts.is_(True)))).all()
     return {u.lower(): d for d, u in rows}
 
 
@@ -119,7 +119,7 @@ async def _counters(db: AsyncSession, values: dict) -> None:
     rows = (await db.execute(
         select(LgPost, LgCity.post_freeze_days).join(LgDonor, LgDonor.id == LgPost.donor_id)
         .join(LgCity, LgCity.id == LgPost.city_id)
-        .where(LgDonor.status == "monitored", LgCity.is_active.is_(True),
+        .where(LgDonor.status == "monitored", LgCity.is_active.is_(True), LgCity.collect_comments.is_(True),
                LgPost.monitor_status.in_(["active", "forced"]), LgPost.is_selling.is_(True)))).all()
     if not rows:
         return

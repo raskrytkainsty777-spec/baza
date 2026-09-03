@@ -20,6 +20,8 @@ class CityCreate(BaseModel):
 class CityPatch(BaseModel):
     name: str | None = None
     is_active: bool | None = None
+    collect_posts: bool | None = None
+    collect_comments: bool | None = None
     cost_per_contact: Decimal | None = None
     cost_per_handling: Decimal | None = None
     comment_fresh_days: int | None = None
@@ -37,6 +39,7 @@ class CityPatch(BaseModel):
 def _dto(c: LgCity, extra: dict | None = None) -> dict:
     d = {
         "id": c.id, "name": c.name, "is_active": c.is_active,
+        "collect_posts": c.collect_posts, "collect_comments": c.collect_comments,
         "cost_per_contact": float(c.cost_per_contact or 0),
         "cost_per_handling": float(c.cost_per_handling or 0),
         "comment_fresh_days": c.comment_fresh_days, "post_freeze_days": c.post_freeze_days,

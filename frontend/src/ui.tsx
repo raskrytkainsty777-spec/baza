@@ -59,7 +59,7 @@ export function KpiRow({ children }: { children: React.ReactNode }) {
 }
 
 export type City = {
-  id: number; name: string; is_active: boolean;
+  id: number; name: string; is_active: boolean; collect_posts: boolean; collect_comments: boolean;
   donors_new: number; donors_monitored: number; donors_paused: number;
   posts: number; posts_active: number; posts_selling: number;
   leads: number; leads_unprobed: number; leads_with_phone: number; leads_sent: number;

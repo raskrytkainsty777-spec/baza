@@ -17,6 +17,7 @@ from ..db import SessionLocal
 from ..models import LgCandidate, LgCity, LgJob, LgReject, LgSearchTask
 from ..services.ai.client import AiError, chat_json, prompt
 from ..services.apify import client as apify
+from ..services.donors import distribute_task
 from . import imports
 from .common import (
     add_ai_cost, ai_on, as_int, chunks, city_by_name, enqueue_job, heartbeat, log_event, settings_all, utcnow,
@@ -227,6 +228,8 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
         else:
             c.state = "unclear"
     await add_ai_cost(db, cost)
+    if values.get("auto_distribute", "1") == "1":
+        await distribute_task(db, t)
     await db.commit()
     if failed == len(cands):
         await log_event(db, "ai.error", f"{t.title}: ИИ не ответила ни по одному из {failed} кандидатов",
@@ -238,8 +241,13 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
 async def _close_classify(db: AsyncSession, t: LgSearchTask) -> None:
     def cnt(*where):
         return select(func.count()).select_from(LgCandidate).where(LgCandidate.task_id == t.id, *where)
-    t.confident = (await db.execute(cnt(LgCandidate.state == "classified"))).scalar() or 0
+    t.confident = (await db.execute(cnt(LgCandidate.state.in_(["classified", "distributed"])))).scalar() or 0
     t.unclear = (await db.execute(cnt(LgCandidate.state == "unclear"))).scalar() or 0
     t.rejected_activity = (await db.execute(cnt(LgCandidate.state == "rejected",
                                                 LgCandidate.reject_reason == "activity"))).scalar() or 0
-    await _set_stage(db, t, "ready", f"уверенно {t.confident}, неясно {t.unclear}, не те {t.rejected_activity}")
+    auto = (await settings_all(db)).get("auto_distribute", "1") == "1"
+    if auto:
+        await distribute_task(db, t)
+    await _set_stage(db, t, "distributed" if (auto and t.confident) else "ready",
+                     f"уверенно {t.confident}, неясно {t.unclear}, не те {t.rejected_activity}"
+                     + (f", по городам {t.distributed}" if auto else ""))

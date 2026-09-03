@@ -8,11 +8,11 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
-from ..models import IgAccount, LgDonor, LgJob, LgPost
+from ..models import IgAccount, LgCity, LgDonor, LgJob, LgPost
 from .common import as_int, chunks, collection_on, enqueue_job, heartbeat, log_event, settings_all, utcnow
 
 log = logging.getLogger("donor_intake")
@@ -38,7 +38,9 @@ async def run():
 async def _stage_posts(db: AsyncSession) -> None:
     rows = (await db.execute(
         select(LgDonor, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id)
-        .where(LgDonor.status.in_(["new", "unclassified"]), LgDonor.intake_stage == "posts")
+        .outerjoin(LgCity, LgCity.id == LgDonor.city_id)
+        .where(LgDonor.status.in_(["new", "unclassified"]), LgDonor.intake_stage == "posts",
+               or_(LgDonor.city_id.is_(None), LgCity.collect_posts.is_(True)))
         .order_by(LgDonor.id))).all()
     for chunk in chunks(rows, 10):
         logins = [u for _, u in chunk]

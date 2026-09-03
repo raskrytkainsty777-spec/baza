@@ -65,8 +65,8 @@ export default function Settings() {
         <Group align="flex-start" grow>
           <Stack gap="xs">
             <Text fw={600}>Управление</Text>
-            <Switch label="Посты и заведение доноров" description="p1 по новым донорам после распределения; суточный обход Apify по донорам на мониторе" checked={!!o?.collection_enabled} disabled={!o} onChange={(e) => sw.mutate({ collection_enabled: e.currentTarget.checked })} />
-            <Switch label="Сбор комментариев" description="первый сбор по продающим постам за окно и досбор по приросту — p2, крупные через Apify" checked={!!o?.comments_enabled} disabled={!o} onChange={(e) => sw.mutate({ comments_enabled: e.currentTarget.checked })} />
+            <Switch label="Посты и заведение доноров" description="главный выключатель; где именно собирать — флаги в карточке города" checked={!!o?.collection_enabled} disabled={!o} onChange={(e) => sw.mutate({ collection_enabled: e.currentTarget.checked })} />
+            <Switch label="Сбор комментариев" description="главный выключатель; включается в карточке города отдельно" checked={!!o?.comments_enabled} disabled={!o} onChange={(e) => sw.mutate({ comments_enabled: e.currentTarget.checked })} />
             <Switch label="ИИ включена" description="разметка постов, квалификация комментариев, «кто и где» по кандидатам" checked={!!o?.ai_enabled} disabled={!o} onChange={(e) => sw.mutate({ ai_enabled: e.currentTarget.checked })} />
             <Text size="xs" c="dimmed">Выключатель не трогает запущенные задания — они дойдут до конца и лягут в базу. Новые не создаются, очередь стоит. Поиск доноров и ИИ-разметка уже собранного работают всегда.</Text>
           </Stack>
@@ -119,6 +119,7 @@ export default function Settings() {
               <NumberInput label="Крупный пост — от комментариев" description="досбор через Apify, а не parser.im" value={Number(v["big_post_threshold"] || 1000)} onChange={(x) => set("big_post_threshold", x)} min={100} />
               <NumberInput label="Потолок Apify, $/день" value={Number(v["apify_daily_cap_usd"] || 10)} onChange={(x) => set("apify_daily_cap_usd", x)} min={0} />
             </Group>
+            <Switch mt="sm" label="Уверенных кандидатов распределять по городам автоматически" description="≥ 90% уверенности в городе и подходящая деятельность → донор города сразу, без кнопки; неясные ждут оператора" checked={(v["auto_distribute"] ?? "1") === "1"} onChange={(e) => set("auto_distribute", e.currentTarget.checked ? "1" : "0")} />
             <Group grow mt="xs">
               <NumberInput label="Фильтр f1: последний пост не старше, дн" description="кто не проходит — «неактивен», в базу отклонённых" value={Number(v["f1_lastpost_days"] || 30)} onChange={(x) => set("f1_lastpost_days", x)} min={1} />
               <NumberInput label="Фильтр f1: подписчиков от" description="0 — без порога" value={Number(v["f1_followers_min"] || 0)} onChange={(x) => set("f1_followers_min", x)} min={0} />

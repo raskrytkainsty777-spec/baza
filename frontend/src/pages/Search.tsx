@@ -62,7 +62,7 @@ export default function Search() {
   return (
     <>
       <Group justify="space-between" mb="md">
-        <div><Title order={2}>Поиск доноров</Title><Text c="dimmed" size="sm">задачи идут сами: сбор → фильтр f1 → ИИ «кто и где» → распределение. Город — результат, не вход.</Text></div>
+        <div><Title order={2}>Поиск доноров</Title><Text c="dimmed" size="sm">задачи идут сами: сбор → фильтр f1 → ИИ «кто и где» → уверенные (≥90%) сразу становятся донорами своих городов. Неясные — ниже, ждут вас.</Text></div>
       </Group>
 
       <Paper mb="md">
@@ -85,7 +85,7 @@ export default function Search() {
           <Paper key={t.id}>
             <Group justify="space-between" mb="xs">
               <Group gap="xs"><Text fw={600}>{t.title}</Text><Badge size="xs" variant="light" color={t.kind === "recommendation" ? "cyan" : "grape"}>{t.kind === "recommendation" ? "Apify" : "parser.im"}</Badge><StatusBadge kind="stage" value={t.stage} /><Text size="xs" c="dimmed">{dt(t.created_at)}</Text></Group>
-              {t.stage === "ready" && <Button size="xs" loading={distribute.isPending} onClick={() => distribute.mutate(t.id)}>Распределить по городам · {n(t.confident)}</Button>}
+              {t.stage === "ready" && t.confident > 0 && <Button size="xs" loading={distribute.isPending} onClick={() => distribute.mutate(t.id)}>Распределить по городам · {n(t.confident)}</Button>}
             </Group>
             <Stages t={t} />
             {t.error && <Text size="xs" c="red" mt="xs">{t.error}</Text>}
