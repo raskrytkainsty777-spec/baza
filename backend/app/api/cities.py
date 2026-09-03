@@ -120,8 +120,10 @@ async def get_city(city_id: int, db: AsyncSession = Depends(get_db)):
     city = await db.get(LgCity, city_id)
     if not city:
         raise HTTPException(404, "Город не найден")
-    counts = await _counts(db)
-    return _dto(city, counts.get(city_id, {}))
+    data = {k: 0 for k in ("donors_new", "donors_monitored", "donors_paused", "posts", "posts_selling",
+                          "posts_active", "leads", "leads_unprobed", "leads_with_phone", "leads_sent")}
+    data.update((await _counts(db)).get(city_id, {}))
+    return _dto(city, data)
 
 
 @router.patch("/{city_id}")
