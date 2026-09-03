@@ -33,7 +33,7 @@ async def run():
         try:
             async with SessionLocal() as db:
                 values = await settings_all(db)
-                if values.get("collection_enabled") == "1":
+                if values.get("comments_enabled") == "1":
                     await _pass(db, values)
                 await heartbeat(db, "comments_collect")
         except Exception:

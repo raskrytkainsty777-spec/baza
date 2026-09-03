@@ -41,7 +41,7 @@ const STAGE: Record<string, [string, string]> = {
 export function StatusBadge({ kind, value }: { kind: "donor" | "post" | "job" | "stage"; value: string }) {
   const map = { donor: DONOR, post: POST, job: JOB, stage: STAGE }[kind];
   const [color, label] = map[value] || ["gray", value];
-  return <Badge color={color} variant="light" size="sm">{label}</Badge>;
+  return <Badge color={color} variant="light" size="sm" style={{ maxWidth: "none", overflow: "visible", flexShrink: 0 }} styles={{ label: { overflow: "visible" } }}>{label}</Badge>;
 }
 
 export function Kpi({ value, label, hint }: { value: React.ReactNode; label: string; hint?: string }) {

@@ -174,13 +174,16 @@ async def _start_queued(db: AsyncSession) -> None:
     values = await settings_all(db)
     max_lines = as_int(values, "parserim_lines", 10)
     collecting = values.get("collection_enabled") == "1"
+    comments_on = values.get("comments_enabled") == "1"
     busy = (await db.execute(select(func.coalesce(func.sum(LgJob.lines), 0)).where(
         LgJob.provider == "parserim", LgJob.state == "running"))).scalar() or 0
     queued = (await db.execute(select(LgJob).where(
         LgJob.provider == "parserim", LgJob.state == "queued")
         .order_by(LgJob.priority, LgJob.created_at))).scalars().all()
     for job in queued:
-        if job.kind in ("comments", "posts_intake") and not collecting:
+        if job.kind == "posts_intake" and not collecting:
+            continue
+        if job.kind == "comments" and not comments_on:
             continue
         if busy + (job.lines or 1) > max_lines:
             continue

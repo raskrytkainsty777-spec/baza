@@ -25,7 +25,8 @@ DEFAULTS: dict[str, str] = {
     "f1_followers_min": "0",                # f1: подписчиков не меньше (0 — без порога)
     "f1_followers_max": "0",                # f1: подписчиков не больше (0 — без порога)
     "apify_daily_cap_usd": "10",
-    "collection_enabled": "0",             # master switch: parser.im/Apify jobs are created only when 1
+    "collection_enabled": "0",             # posts of new donors, Apify daily cycle
+    "comments_enabled": "0",               # p2 / Apify comment collection (first collection + growth)
     "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",

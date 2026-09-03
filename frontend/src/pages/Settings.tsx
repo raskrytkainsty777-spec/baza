@@ -65,9 +65,10 @@ export default function Settings() {
         <Group align="flex-start" grow>
           <Stack gap="xs">
             <Text fw={600}>Управление</Text>
-            <Switch label="Сбор включён" description="parser.im и Apify создают задания: посты новых доноров, комментарии, суточный обход" checked={!!o?.collection_enabled} disabled={!o} onChange={(e) => sw.mutate({ collection_enabled: e.currentTarget.checked })} />
+            <Switch label="Посты и заведение доноров" description="p1 по новым донорам после распределения; суточный обход Apify по донорам на мониторе" checked={!!o?.collection_enabled} disabled={!o} onChange={(e) => sw.mutate({ collection_enabled: e.currentTarget.checked })} />
+            <Switch label="Сбор комментариев" description="первый сбор по продающим постам за окно и досбор по приросту — p2, крупные через Apify" checked={!!o?.comments_enabled} disabled={!o} onChange={(e) => sw.mutate({ comments_enabled: e.currentTarget.checked })} />
             <Switch label="ИИ включена" description="разметка постов, квалификация комментариев, «кто и где» по кандидатам" checked={!!o?.ai_enabled} disabled={!o} onChange={(e) => sw.mutate({ ai_enabled: e.currentTarget.checked })} />
-            <Text size="xs" c="dimmed">Выключенный сбор не трогает запущенные задания — они дойдут до конца и лягут в базу. Новые не создаются, очередь стоит. Поиск доноров работает всегда.</Text>
+            <Text size="xs" c="dimmed">Выключатель не трогает запущенные задания — они дойдут до конца и лягут в базу. Новые не создаются, очередь стоит. Поиск доноров и ИИ-разметка уже собранного работают всегда.</Text>
           </Stack>
           <Stack gap="xs">
             <Text fw={600}>Сейчас</Text>

@@ -21,6 +21,7 @@ WORKERS = ("job_runner", "discovery", "donor_intake", "comments_collect", "posts
 
 class Switches(BaseModel):
     collection_enabled: bool | None = None
+    comments_enabled: bool | None = None
     ai_enabled: bool | None = None
 
 
@@ -50,6 +51,7 @@ async def status(db: AsyncSession = Depends(get_db)):
     queued = (await db.execute(select(func.count()).where(LgJob.provider == "parserim", LgJob.state == "queued"))).scalar() or 0
     return {
         "collection_enabled": values.get("collection_enabled") == "1",
+        "comments_enabled": values.get("comments_enabled") == "1",
         "ai_enabled": values.get("ai_enabled", "1") == "1",
         "parserim": {"lines_busy": int(lines_busy), "lines_total": int(values.get("parserim_lines") or 10), "queued": queued},
         "ai_cost_today_usd": float(values.get(f"ai_cost.{date.today().isoformat()}") or 0),
@@ -62,6 +64,8 @@ async def status(db: AsyncSession = Depends(get_db)):
 async def switches(body: Switches, db: AsyncSession = Depends(get_db)):
     if body.collection_enabled is not None:
         await set_value(db, "collection_enabled", "1" if body.collection_enabled else "0")
+    if body.comments_enabled is not None:
+        await set_value(db, "comments_enabled", "1" if body.comments_enabled else "0")
     if body.ai_enabled is not None:
         await set_value(db, "ai_enabled", "1" if body.ai_enabled else "0")
     await db.commit()
