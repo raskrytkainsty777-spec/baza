@@ -66,7 +66,7 @@ async def _pass(db: AsyncSession, values: dict) -> None:
                LgPost.monitor_status.in_(["active", "forced"]),
                or_(LgPost.is_selling.is_(True), LgPost.monitor_status == "forced"),
                or_(LgPost.last_collected_at.is_(None) & (LgPost.published_at >= since),
-                   LgPost.comments_delta > 0))
+                   (LgPost.comments_delta > 0) & LgPost.last_checked_at.isnot(None)))   # прирост — только после сверки счётчиков
         .order_by(LgPost.donor_id, LgPost.published_at.desc()))).all()
 
     first, growth_small, growth_big = [], [], []
@@ -76,7 +76,9 @@ async def _pass(db: AsyncSession, values: dict) -> None:
             continue
         if p.last_collected_at is None:
             if (p.comments_count or 0) < min_first:
-                p.last_collected_at, p.collected_comments = now, 0     # мало или нечего собирать; вырастет — возьмёт прирост
+                # мало или нечего собирать; точка отсчёта прироста — текущий счётчик
+                p.last_collected_at, p.collected_comments = now, 0
+                p.comments_count_prev, p.comments_delta = p.comments_count or 0, 0
                 continue
             first.append((p, username))
         elif p.comments_count >= threshold:
