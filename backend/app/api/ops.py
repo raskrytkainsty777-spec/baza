@@ -106,7 +106,7 @@ async def probe_summary(city_id: int, db: AsyncSession = Depends(get_db)):
         select(LgLead.probe_status, func.count()).where(LgLead.city_id == city_id).group_by(LgLead.probe_status))).all())
     day = func.date(LgComment.written_at)
     days = (await db.execute(
-        select(day, func.count()).join(LgComment, LgComment.id == LgLead.comment_id)
+        select(day, func.count()).select_from(LgLead).join(LgComment, LgComment.id == LgLead.comment_id)
         .where(LgLead.city_id == city_id, LgLead.phone.is_(None), LgLead.probe_status == "pending")
         .group_by(day).order_by(day.desc()).limit(60))).all()
     with_phone = (await db.execute(select(func.count()).where(LgLead.city_id == city_id, LgLead.phone.isnot(None)))).scalar() or 0

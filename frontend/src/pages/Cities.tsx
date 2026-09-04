@@ -87,6 +87,11 @@ export function CityPage() {
     },
     onError: err,
   });
+  const quick = useMutation({
+    mutationFn: (body: any) => api(`/cities/${id}`, { method: "PATCH", body }),
+    onSuccess: (_r: any, body: any) => { qc.invalidateQueries({ queryKey: ["city", id] }); qc.invalidateQueries({ queryKey: ["cities"] }); notifications.show({ color: "green", message: Object.values(body)[0] ? "Включено" : "Выключено" }); },
+    onError: err,
+  });
   const c = city.data;
   if (!c) return <Text c="dimmed">загрузка…</Text>;
   const set = (k: string, v: any) => setF((s: any) => ({ ...s, [k]: v }));
@@ -153,9 +158,9 @@ export function CityPage() {
             <Text fw={600} mb="xs">Город</Text>
             <TextInput label="Название" value={f.name || ""} onChange={(e) => set("name", e.currentTarget.value)} mb="xs" />
             <Switch label="Активен" checked={!!f.is_active} onChange={(e) => set("is_active", e.currentTarget.checked)} mb="sm" />
-            <Switch label="Собирать посты" description="новые доноры этого города сразу уходят в сбор постов (p1 → ИИ), потом суточный обход Apify. Кто появится позже — подхватится сам" checked={!!f.collect_posts} onChange={(e) => set("collect_posts", e.currentTarget.checked)} mb="xs" />
-            <Switch label="Собирать комментарии" description="первый сбор по продающим постам за окно и досбор по приросту" checked={!!f.collect_comments} onChange={(e) => set("collect_comments", e.currentTarget.checked)} />
-            <Text size="xs" c="dimmed" mt="xs">Главные выключатели в Настройках должны быть включены — они останавливают всё разом.</Text>
+            <Switch label="Собирать посты" description="новые доноры этого города сразу уходят в сбор постов (p1 → ИИ), потом суточный обход Apify. Кто появится позже — подхватится сам" checked={!!f.collect_posts} onChange={(e) => { set("collect_posts", e.currentTarget.checked); quick.mutate({ collect_posts: e.currentTarget.checked }); }} mb="xs" />
+            <Switch label="Собирать комментарии" description="первый сбор по продающим постам за окно и досбор по приросту" checked={!!f.collect_comments} onChange={(e) => { set("collect_comments", e.currentTarget.checked); quick.mutate({ collect_comments: e.currentTarget.checked }); }} />
+            <Text size="xs" c="dimmed" mt="xs">Эти два переключателя сохраняются сразу, без кнопки. Главные выключатели в Настройках должны быть включены — они останавливают всё разом.</Text>
           </Paper>
           <Paper>
             <Text fw={600} mb="xs">Цены</Text>

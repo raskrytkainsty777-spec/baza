@@ -164,9 +164,10 @@ async def _close_filter(db: AsyncSession, t: LgSearchTask, fjobs: list[LgJob]) -
         return
     for c in left:
         c.state, c.reject_reason = "rejected", "inactive"
-    if left:
+    real = [c for c in left if not c.username.startswith("id:")]
+    if real:
         await db.execute(insert(LgReject).values([
-            {"username": c.username, "reason": "inactive", "search_task_id": t.id} for c in left
+            {"username": c.username, "reason": "inactive", "search_task_id": t.id} for c in real
         ]).on_conflict_do_nothing(index_elements=["username"]))
     t.passed = (await db.execute(select(func.count()).select_from(LgCandidate).where(
         LgCandidate.task_id == t.id, LgCandidate.state == "filtered"))).scalar() or 0

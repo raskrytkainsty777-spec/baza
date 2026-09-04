@@ -36,6 +36,9 @@ async def add_candidates(db: AsyncSession, task: LgSearchTask, entries: list[dic
     seen: dict[str, dict] = {}
     for e in entries:
         u = norm_login(e.get("username") or "")
+        if not u and e.get("ig_id"):
+            # web-сбор parser.im отдаёт только id; логин подтянет f1 по id задания-источника
+            u = f"id:{str(e['ig_id']).strip()}"
         if u and u not in known and u not in seen:
             seen[u] = e
     inserted = 0
@@ -81,8 +84,10 @@ async def import_filter(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
     if unknown:
         await log_event(db, "parserim.f1_header", f"f1: незнакомые колонки {unknown} — заголовок {keys}",
                         entity="job", entity_id=job.id, level="warn", payload={"header": keys})
-    cands = {c.username.lower(): c for c in (await db.execute(
-        select(LgCandidate).where(LgCandidate.task_id == job.search_task_id))).scalars().all()}
+    all_cands = (await db.execute(select(LgCandidate).where(LgCandidate.task_id == job.search_task_id))).scalars().all()
+    cands = {c.username.lower(): c for c in all_cands}
+    by_id = {str(c.ig_id): c for c in all_cands if c.ig_id}
+    taken = {c.username.lower() for c in all_cands}
     n = 0
     for r in rows:
         mapped = {}
@@ -91,10 +96,13 @@ async def import_filter(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
             if f:
                 mapped[f] = v
         u = norm_login(mapped.get("username") or "")
-        c = cands.get(u)
+        c = cands.get(u) or by_id.get(str(mapped.get("ig_id") or "").strip())
         if not c:
             continue
         c.ig_id = c.ig_id or (mapped.get("ig_id") or None)
+        if u and c.username.startswith("id:") and u not in taken:
+            c.username = u          # заглушка id:<id> → настоящий логин
+            taken.add(u)
         c.full_name = (mapped.get("full_name") or "")[:300] or c.full_name
         c.bio = mapped.get("bio") or c.bio
         addr = (mapped.get("address") or "").strip()
