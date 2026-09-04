@@ -2,7 +2,7 @@
 
 Три задачи, живые данные из базы:
   comments — квалификация комментариев; эталон — решения текущей модели (ai_at не пуст);
-  posts    — разметка постов; эталон — ручная разметка заказчика из xlsx (ai_at пуст);
+  posts    — разметка постов; эталон — ручная разметка заказчика из xlsx (ai_summary пуст: ИИ их не трогала);
   cands    — «кто и где» по кандидатам после f1; эталона нет, сравниваем модели между собой.
 Для комментариев ещё и режим «пачкой»: 20 комментариев одного поста в одном вызове.
 
@@ -84,7 +84,7 @@ async def sample_posts(n: int, seed: int) -> list[dict]:
     async with SessionLocal() as db:
         rows = (await db.execute(text("""
             select id, shortcode, caption, is_selling, category, cta_type, code_word, hook, offer
-            from lg_posts where ai_at is null and caption is not null and length(caption) > 80
+            from lg_posts where ai_summary is null and caption is not null and length(caption) > 80
         """))).mappings().all()
     rnd = random.Random(seed)
     rows = [dict(r) for r in rows]
