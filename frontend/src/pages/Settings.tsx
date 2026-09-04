@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, Group, NumberInput, Paper, Stack, Switch, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Badge, Button, Group, NumberInput, Paper, PasswordInput, Stack, Switch, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
@@ -107,6 +107,7 @@ export default function Settings() {
                 <Table.Tr><Table.Td>Сервис пробива</Table.Td><Table.Td className="mono">{env.probe_base_url}</Table.Td></Table.Tr>
               </Table.Tbody>
             </Table>}
+            <PasswordInput mt="sm" label="Leads Factory — токен Open API" description="выдаётся в их кабинете: Open API → Выдать токен. Хранится здесь, не в .env" placeholder="вставьте и нажмите Сохранить" value={v["leadsfactory_token"] || ""} onChange={(e) => set("leadsfactory_token", e.currentTarget.value)} className="mono" />
           </Paper>
           <Paper>
             <Text fw={600} mb="xs">Модели ИИ <Text span size="xs" c="dimmed">— id из каталога OpenRouter; замер 04.09 в docs/DECISIONS.md</Text></Text>

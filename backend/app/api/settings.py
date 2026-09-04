@@ -34,6 +34,7 @@ DEFAULTS: dict[str, str] = {
     "ai_model.posts": "google/gemini-2.5-flash-lite",      # bench 04.09: category/code word closer to manual labels than haiku
     "ai_model.cands": "anthropic/claude-haiku-4.5",         # small volume, city decision matters; cheap models agree 77-87%
     "ai_batch_size": "20",                 # comments of one post per AI call
+    "leadsfactory_token": "",              # Leads Factory Open API bearer (vdl), issued in their cabinet
     "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",
