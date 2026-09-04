@@ -187,6 +187,7 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
         return
     values = await settings_all(db)
     cities = ", ".join((await db.execute(select(LgCity.name).order_by(LgCity.name))).scalars().all())
+    model = (values.get("ai_model.cands") or "").strip() or None
     system = (prompt("activity", values) + "\n\n" + prompt("city", values, cities=cities)
               + "\n\nФормат ответа: {\"activity_kind\": \"…\", \"ok\": true, \"city\": \"…\" или null, "
                 "\"confidence\": 0.0, \"reason\": \"коротко почему\"}")
@@ -198,7 +199,7 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
                                "followers": c.followers, "posts": c.posts_count,
                                "last_post": c.last_post_at.isoformat() if c.last_post_at else None},
                               ensure_ascii=False)
-            return await chat_json(system, user)
+            return await chat_json(system, user, model=model)
 
     results = await asyncio.gather(*(ask(c) for c in cands), return_exceptions=True)
     cost, failed = 0.0, 0

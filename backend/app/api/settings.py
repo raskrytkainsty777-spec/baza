@@ -29,6 +29,10 @@ DEFAULTS: dict[str, str] = {
     "comments_enabled": "1",               # master: p2 / Apify comment collection (per-city flags decide where)
     "auto_distribute": "1",                # confident candidates become donors without the button
     "unclassified_collect_posts": "0",     # donors without a city: collect posts (p1) so AI can place posts by city
+    "ai_model.comments": "google/gemini-2.5-flash-lite",   # bench 04.09: 98% agreement with haiku in batch mode, $0.025/1000
+    "ai_model.posts": "google/gemini-2.5-flash-lite",      # bench 04.09: category/code word closer to manual labels than haiku
+    "ai_model.cands": "anthropic/claude-haiku-4.5",         # small volume, city decision matters; cheap models agree 77-87%
+    "ai_batch_size": "20",                 # comments of one post per AI call
     "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",

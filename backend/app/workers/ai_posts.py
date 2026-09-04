@@ -51,6 +51,7 @@ async def _pass(db: AsyncSession) -> None:
         return
     values = await settings_all(db)
     cities = ", ".join((await db.execute(select(LgCity.name).order_by(LgCity.name))).scalars().all())
+    model = (values.get("ai_model.posts") or "").strip() or None
     base = prompt("post", values)
     with_city = base + "\n\n" + prompt("post_city", values, cities=cities)
     sem = asyncio.Semaphore(CONCURRENCY)
@@ -64,7 +65,7 @@ async def _pass(db: AsyncSession) -> None:
                            "published": p.published_at.isoformat() if p.published_at else None,
                            "type": p.product_type, "caption": p.caption[:6000]}, ensure_ascii=False)
         async with sem:
-            return await chat_json(system, user)
+            return await chat_json(system, user, model=model)
 
     results = await asyncio.gather(*(ask(p, d, u) for p, d, u in rows), return_exceptions=True)
     cost, failed = 0.0, 0

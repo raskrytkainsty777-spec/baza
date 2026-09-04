@@ -109,6 +109,18 @@ export default function Settings() {
             </Table>}
           </Paper>
           <Paper>
+            <Text fw={600} mb="xs">Модели ИИ <Text span size="xs" c="dimmed">— id из каталога OpenRouter; замер 04.09 в docs/DECISIONS.md</Text></Text>
+            <Group grow>
+              <TextInput label="Комментарии" description="пачкой по посту; gemini-2.5-flash-lite: 98% согласия с haiku, $0.025/1000" value={v["ai_model.comments"] || ""} onChange={(e) => set("ai_model.comments", e.currentTarget.value)} className="mono" />
+              <TextInput label="Посты" description="разметка продающих" value={v["ai_model.posts"] || ""} onChange={(e) => set("ai_model.posts", e.currentTarget.value)} className="mono" />
+            </Group>
+            <Group grow mt="xs">
+              <TextInput label="Кандидаты: кто и где" description="объём небольшой, ошибка в городе дорогая — haiku" value={v["ai_model.cands"] || ""} onChange={(e) => set("ai_model.cands", e.currentTarget.value)} className="mono" />
+              <NumberInput label="Комментариев в одном вызове" description="5–40; больше — дешевле, но длиннее ответ" value={Number(v["ai_batch_size"] || 20)} onChange={(x) => set("ai_batch_size", x)} min={5} max={40} />
+            </Group>
+            <Text size="xs" c="dimmed" mt="xs">До ИИ работают правила без вызова модели: голый «+», кодовое слово поста, одни эмодзи, одно @упоминание.</Text>
+          </Paper>
+          <Paper>
             <Text fw={600} mb="xs">Сбор</Text>
             <Group grow>
               <NumberInput label="Окно постов при заводе донора, дн" value={Number(v["intake_days"] || 45)} onChange={(x) => set("intake_days", x)} min={1} />
