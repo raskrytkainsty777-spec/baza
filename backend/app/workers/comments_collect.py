@@ -52,6 +52,7 @@ async def _busy_post_ids(db: AsyncSession) -> set[int]:
 async def _pass(db: AsyncSession, values: dict) -> None:
     intake_days = as_int(values, "intake_days", 45)
     threshold = as_int(values, "big_post_threshold", 1000)
+    min_first = max(1, as_int(values, "min_comments_first", 1))
     since = utcnow() - timedelta(days=intake_days)
     busy = await _busy_post_ids(db)
 
@@ -74,8 +75,8 @@ async def _pass(db: AsyncSession, values: dict) -> None:
         if p.id in busy:
             continue
         if p.last_collected_at is None:
-            if (p.comments_count or 0) == 0:
-                p.last_collected_at, p.collected_comments = now, 0     # нечего собирать
+            if (p.comments_count or 0) < min_first:
+                p.last_collected_at, p.collected_comments = now, 0     # мало или нечего собирать; вырастет — возьмёт прирост
                 continue
             first.append((p, username))
         elif p.comments_count >= threshold:

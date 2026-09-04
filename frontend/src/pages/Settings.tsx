@@ -128,6 +128,7 @@ export default function Settings() {
             </Group>
             <Group grow mt="xs">
               <NumberInput label="Строк в тарифе parser.im" value={Number(v["parserim_lines"] || 10)} onChange={(x) => set("parserim_lines", x)} min={1} />
+              <NumberInput label="Первый сбор — от комментариев" description="мельче пропускаем; вырастет — возьмёт прирост" value={Number(v["min_comments_first"] || 1)} onChange={(x) => set("min_comments_first", x)} min={1} />
               <NumberInput label="Крупный пост — от комментариев" description="досбор через Apify, а не parser.im" value={Number(v["big_post_threshold"] || 1000)} onChange={(x) => set("big_post_threshold", x)} min={100} />
               <NumberInput label="Потолок Apify, $/день" value={Number(v["apify_daily_cap_usd"] || 10)} onChange={(x) => set("apify_daily_cap_usd", x)} min={0} />
             </Group>
