@@ -293,19 +293,19 @@ def _pct(v):
 
 def report(results: dict, items_cands: list[dict]) -> str:
     lines = []
-    if "comments" in results:
+    if results.get("comments"):
         lines += ["", "КОММЕНТАРИИ — согласие с эталоном (haiku), лиды: точность / полнота", "",
                   f"{'модель':44s} {'режим':7s} {'согл.':>7s} {'точн.':>7s} {'полн.':>7s} {'сбои':>5s} {'сек':>5s} {'$/1000':>8s}"]
         for (model, mode), r in results["comments"].items():
             lines.append(f"{model:44s} {mode:7s} {_pct(r['agreement']):>7s} {_pct(r['lead_precision']):>7s} "
                          f"{_pct(r['lead_recall']):>7s} {r['fails']:5d} {r['latency_avg']:5.1f} {r['cost_per_1000']:8.3f}")
-    if "posts" in results:
+    if results.get("posts"):
         lines += ["", "ПОСТЫ — согласие с ручной разметкой заказчика", "",
                   f"{'модель':44s} {'продающ.':>9s} {'категория':>10s} {'кодслово':>9s} {'сбои':>5s} {'сек':>5s} {'$/1000':>8s}"]
         for model, r in results["posts"].items():
             lines.append(f"{model:44s} {_pct(r['selling_agreement']):>9s} {_pct(r['category_agreement']):>10s} "
                          f"{_pct(r['code_word_agreement']):>9s} {r['fails']:5d} {r['latency_avg']:5.1f} {r['cost_per_1000']:8.3f}")
-    if "cands" in results:
+    if results.get("cands"):
         base_model = next(iter(results["cands"]))
         base = results["cands"][base_model]["answers"]
         lines += ["", f"КАНДИДАТЫ «кто и где» — согласие с {base_model}", "",
@@ -355,8 +355,6 @@ async def main():
             r = await run_cands(m, cands, cities, values); results["cands"][m] = r; total_cost += r["cost"]
         print(f"  {m}: готово за {time.perf_counter() - t0:.0f} с, потрачено всего ${total_cost:.3f}")
 
-    print(report(results, cands))
-    print(f"\nИТОГО потрачено на тест: ${total_cost:.3f}")
     dump = {"comments": {f"{m} | {mode}": r for (m, mode), r in results["comments"].items()},
             "posts": results["posts"], "cands": {m: {k: v for k, v in r.items()} for m, r in results["cands"].items()},
             "sample_comment_ids": [c["id"] for c in comments], "sample_post_ids": [p["id"] for p in posts],
@@ -364,6 +362,8 @@ async def main():
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(dump, f, ensure_ascii=False, indent=1, default=str)
     print(f"подробности: {a.out}")
+    print(report(results, cands))
+    print(f"\nИТОГО потрачено на тест: ${total_cost:.3f}")
 
 
 if __name__ == "__main__":
