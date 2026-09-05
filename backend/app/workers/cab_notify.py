@@ -125,6 +125,8 @@ async def summary_text(db: AsyncSession, c: CabClient) -> str:
     today = (await db.execute(select(func.count(), func.count().filter(CabContact.lf_status == "repeat"))
                               .where(CabContact.client_id == c.id, CabContact.bought_at >= day_start))).one()
     week = (await db.execute(select(func.count()).where(CabContact.client_id == c.id, CabContact.bought_at >= week_start))).scalar() or 0
+    first = (await db.execute(select(func.min(CabContact.bought_at)).where(CabContact.client_id == c.id))).scalar()
+    active_days = max(1, min(7, (now.date() - first.astimezone(MSK).date()).days + 1)) if first else 1   # проект младше недели — делим на его дни
     src_on, src_all = (await db.execute(select(func.count().filter(CabSource.enabled_by_user.is_(True) & CabSource.enabled_by_schedule.is_(True)), func.count())
                                         .where(CabSource.client_id == c.id))).one()
     top = (await db.execute(text("""
@@ -132,11 +134,11 @@ async def summary_text(db: AsyncSession, c: CabClient) -> str:
         JOIN cab_sources s ON s.id = x.source_id LEFT JOIN cab_companies co ON co.id = s.company_id
         WHERE x.client_id = :cid AND x.bought_at >= :since GROUP BY s.phone, co.name ORDER BY 3 DESC LIMIT 5
     """), {"cid": c.id, "since": day_start})).all()
-    avg = week / 7
+    avg = week / active_days
     days_left = int(c.balance_contacts / avg) if c.balance_contacts and avg > 0 else None
     lines = [f"<b>{c.name}</b> — сводка за {now.strftime('%d.%m.%Y')}",
              f"Куплено сегодня: <b>{today[0]}</b> контактов" + (f" (повторов {today[1]})" if today[1] else ""),
-             f"За 7 дней: {week} · в среднем {avg:.0f} в день",
+             f"За {'7 дней' if active_days == 7 else f'{active_days} дн.'}: {week} · в среднем {avg:.0f} в день",
              f"Баланс: <b>{c.balance_contacts if c.balance_contacts is not None else '—'}</b> контактов"
              + (f" · {c.lf_balance_rub:.0f} ₽" if c.lf_balance_rub is not None else "")
              + (f" · хватит примерно на {days_left} дн." if days_left is not None else ""),

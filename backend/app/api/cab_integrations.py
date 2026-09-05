@@ -208,27 +208,6 @@ async def create(body: IntegrationIn, c: CabClient = Depends(require_client), db
     return _dto(i)
 
 
-@router.post("/{integration_id}/test")
-async def test(integration_id: int, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
-    i = await db.get(CabIntegration, integration_id)
-    if not i or i.client_id != c.id:
-        raise HTTPException(404, "Интеграция не найдена")
-    p = test_payload()
-    note = None
-    try:
-        if i.kind == "gsheets":
-            await deliver_gsheets(db, i, [p])
-        else:
-            note = await deliver_one(i, p)
-        i.status, i.last_error, i.last_test_at = "ok", None, utcnow()
-    except Exception as e:   # noqa: BLE001
-        i.status, i.last_error, i.last_test_at = "error", str(e)[:400], utcnow()
-        await db.commit()
-        raise HTTPException(400, str(e))
-    await db.commit()
-    return {"ok": True, "sent": p, "note": note}
-
-
 # ── Telegram ──────────────────────────────────────────────────────────────────────
 
 @router.get("/telegram")
@@ -281,3 +260,24 @@ async def delete(integration_id: int, c: CabClient = Depends(require_client), db
     await db.flush()
     await db.delete(i)
     await db.commit()
+
+
+@router.post("/{integration_id}/test")
+async def test(integration_id: int, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    i = await db.get(CabIntegration, integration_id)
+    if not i or i.client_id != c.id:
+        raise HTTPException(404, "Интеграция не найдена")
+    p = test_payload()
+    note = None
+    try:
+        if i.kind == "gsheets":
+            await deliver_gsheets(db, i, [p])
+        else:
+            note = await deliver_one(i, p)
+        i.status, i.last_error, i.last_test_at = "ok", None, utcnow()
+    except Exception as e:   # noqa: BLE001
+        i.status, i.last_error, i.last_test_at = "error", str(e)[:400], utcnow()
+        await db.commit()
+        raise HTTPException(400, str(e))
+    await db.commit()
+    return {"ok": True, "sent": p, "note": note}
