@@ -113,6 +113,7 @@ async def _pass(db: AsyncSession) -> None:
                     if not payloads.get(r.id):
                         r.state, r.last_error = "dead", "контакт не найден"
             else:
+                item_error = None
                 for r in items:
                     p = payloads.get(r.id)
                     if not p:
@@ -125,12 +126,16 @@ async def _pass(db: AsyncSession) -> None:
                             raise RuntimeError(f"интеграция {integ.kind} ещё не подключена")
                         _sent(r)
                     except Exception as e:   # noqa: BLE001
-                        _failed(r, str(e))
+                        item_error = str(e)[:400]
+                        _failed(r, item_error)
+                if item_error:
+                    raise RuntimeError(item_error)   # интеграцию пометить ошибкой, строки уже разобраны
             integ.status, integ.last_error = "ok", None
         except Exception as e:   # noqa: BLE001
             msg = str(e)[:400]
             for r in items:
-                _failed(r, msg)
+                if r.state in ("pending",):   # gsheets: пачка целиком; connector: строки уже помечены поштучно
+                    _failed(r, msg)
             integ.status, integ.last_error = "error", msg
             log.warning("интеграция %s #%s: %s", integ.kind, integ.id, msg)
         await db.commit()
