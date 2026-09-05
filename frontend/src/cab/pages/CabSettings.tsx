@@ -48,7 +48,7 @@ export default function CabSettings() {
           <Paper>
             <Text fw={600} mb="xs">Статусы по вебхуку</Text>
             <Text size="sm">Ваши сервисы шлют статус по номеру на адрес:</Text>
-            <Code block mt={4}>{hookUrl}</Code>
+            <Code block mt={4} style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{hookUrl}</Code>
             <Text size="sm" mt="xs">POST с JSON <Code>{`{"phone": "79991112233", "status": "lead"}`}</Code> или GET <Code>?phone=…&status=…</Code>. Статусы: <Code>unsuccessful</Code> неуспешный, <Code>lead</Code> лид, <Code>qual</Code> квал-лид (принимаем и по-русски). Номер ищется среди купленных контактов, результат ложится в «Компании» и «Базу».</Text>
           </Paper>
           <Paper>
