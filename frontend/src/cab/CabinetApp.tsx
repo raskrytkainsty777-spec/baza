@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Navigate, NavLink as RouterLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell, Badge, Box, Button, Center, Group, NavLink, Paper, PasswordInput, ScrollArea, Stack, Text, TextInput, Title, UnstyledButton } from "@mantine/core";
 import { IconBan, IconBuilding, IconDatabase, IconListDetails, IconLogout, IconSettings, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { cabApi, cabToken, clearCabToken, setCabToken } from "./api";
 import { n } from "../ui";
 import Sources from "./pages/Sources";
+import Dosbor from "./pages/Dosbor";
 import Companies from "./pages/Companies";
 import Base from "./pages/Base";
 import Blacklist from "./pages/Blacklist";
@@ -67,7 +68,8 @@ function Shell({ children }: { children: React.ReactNode }) {
         </Group>
         <ScrollArea style={{ flex: 1 }} mt="xs">
           {NAV.map((i) => {
-            const active = i.end ? loc.pathname === i.to : loc.pathname.startsWith(i.to);
+            const path = loc.pathname.replace(/\/+$/, "") || "/";
+            const active = i.end ? path === i.to : path.startsWith(i.to);
             return <NavLink key={i.to} component={RouterLink} to={i.to} label={i.label} leftSection={<i.icon size={18} stroke={1.6} />} active={active} variant="light" color="teal" style={{ borderRadius: 8 }} />;
           })}
         </ScrollArea>
@@ -115,7 +117,7 @@ export default function CabinetApp() {
               <Route path="companies" element={<Companies />} />
               <Route path="base" element={<Base />} />
               <Route path="blacklist" element={<Blacklist />} />
-              <Route path="dosbor" element={<Paper><Title order={3}>Досбор</Title><Text c="dimmed">Агенты, ресурсы и задачи — следующий этап, выкатывается отдельно.</Text></Paper>} />
+              <Route path="dosbor" element={<Dosbor />} />
               <Route path="settings" element={<CabSettings />} />
               <Route path="*" element={<Sources />} />
             </Routes>

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import (
-    auth, cab, cities, dashboard, donors, gck, inbound, jobs, ops, posts, search, settings as settings_api,
+    auth, cab, cab_dosbor, cities, dashboard, donors, gck, inbound, jobs, ops, posts, search, settings as settings_api,
 )
 from .config import settings
 
@@ -28,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, cities, dashboard, donors, posts, search, jobs, settings_api, ops, inbound, gck, cab):
+for r in (auth, cities, dashboard, donors, posts, search, jobs, settings_api, ops, inbound, gck, cab, cab_dosbor):
     app.include_router(r.router)
 
 try:

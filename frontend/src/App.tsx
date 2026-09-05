@@ -16,6 +16,7 @@ import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
 import Gck from "./pages/Gck";
 import CabinetApp from "./cab/CabinetApp";
+import AgentApp from "./agent/AgentApp";
 
 const NAV = [
   { to: "/", label: "Мастер задач", icon: IconLayoutDashboard, end: true },
@@ -89,6 +90,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/cabinet/*" element={<CabinetApp />} />
+        <Route path="/agent/*" element={<AgentApp />} />
         <Route path="/*" element={
           <RequireAuth>
             <Shell>
