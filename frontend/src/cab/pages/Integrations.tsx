@@ -70,7 +70,7 @@ export default function Integrations() {
           <Text size="sm">1. Откройте доступ <b>редактора</b> вашей таблице для аккаунта:</Text>
           <Group gap="xs" mt={4}>
             {ga.data?.name && ga.data?.email && <Text size="sm" fw={500}>{ga.data.name}</Text>}
-            <Code>{ga.data?.email || ga.data?.error || "…"}</Code>
+            {ga.data && !ga.data.email ? <Text size="sm" c="red">{ga.data.error || "Google-аккаунт у нас пока не настроен — напишите администратору"}</Text> : <Code>{ga.data?.email || "…"}</Code>}
             {ga.data?.email && <CopyButton value={ga.data.email}>{({ copied, copy }) => <Button size="compact-xs" variant="light" onClick={copy}>{copied ? "скопировано" : "копировать"}</Button>}</CopyButton>}
           </Group>
           <Text size="sm" mt="sm">2. Вставьте ссылку на таблицу и проверьте доступ:</Text>
