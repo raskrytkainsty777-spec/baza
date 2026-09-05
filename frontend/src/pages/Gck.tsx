@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, Group, Menu, Modal, NumberInput, Paper, PasswordInput, Table, Text, TextInput, Title } from "@mantine/core";
+import { Badge, Button, Code, Group, Menu, Modal, NumberInput, Paper, PasswordInput, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconDotsVertical, IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,8 +13,10 @@ export default function Gck() {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState<any>({ login: "", password: "", name: "", lf_crm_id: "", answer_cost: "", limit_default: "" });
   const [g, setG] = useState<any>({});
-  useEffect(() => { if (settings.data) setG({ gck_answer_cost: settings.data.values.gck_answer_cost, gck_limit_default: settings.data.values.gck_limit_default, cab_telegram_bot_token: settings.data.values.cab_telegram_bot_token || "" }); }, [settings.data]);
+  useEffect(() => { if (settings.data) setG({ gck_answer_cost: settings.data.values.gck_answer_cost, gck_limit_default: settings.data.values.gck_limit_default, cab_telegram_bot_token: settings.data.values.cab_telegram_bot_token || "", google_sa_json: settings.data.values.google_sa_json || "", google_sa_name: settings.data.values.google_sa_name || "" }); }, [settings.data]);
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
+  const ginfo = useQuery({ queryKey: ["gck-google"], queryFn: () => api("/gck/google/info") });
+  const gcheck = useMutation({ mutationFn: () => api("/gck/google/check", { method: "POST", body: { json_key: g.google_sa_json } }), onSuccess: (r: any) => notifications.show({ color: "green", message: `Ключ рабочий: ${r.client_email}` }), onError: err });
   const bust = () => qc.invalidateQueries({ queryKey: ["gck-clients"] });
   const create = useMutation({
     mutationFn: () => api("/gck/clients", { method: "POST", body: { login: f.login, password: f.password, name: f.name, lf_crm_id: f.lf_crm_id ? Number(f.lf_crm_id) : null, answer_cost: f.answer_cost ? Number(f.answer_cost) : null, limit_default: f.limit_default ? Number(f.limit_default) : null } }),
@@ -49,6 +51,13 @@ export default function Gck() {
           <Button variant="light" loading={saveG.isPending} onClick={() => saveG.mutate()}>Сохранить</Button>
           <Text size="xs" c="dimmed">токен Leads Factory — в Настройках → Ключи и связки</Text>
         </Group>
+        <Group align="flex-end" gap="sm" mt="md">
+          <TextInput w={260} label="Google — название аккаунта" description="так подпишем его клиенту" placeholder="Робот ГЦК" value={g.google_sa_name || ""} onChange={(e) => setG({ ...g, google_sa_name: e.currentTarget.value })} />
+          <Textarea style={{ flex: 1 }} label="JSON ключ сервисного аккаунта" description="один на всех клиентов; его почта показывается клиенту в интеграции Google Таблиц" autosize minRows={2} maxRows={6} className="mono" value={g.google_sa_json || ""} onChange={(e) => setG({ ...g, google_sa_json: e.currentTarget.value })} placeholder='{"type": "service_account", "client_email": "...", "private_key": "..."}' />
+          <Button variant="light" loading={gcheck.isPending} disabled={!(g.google_sa_json || "").trim()} onClick={() => gcheck.mutate()}>Проверить ключ</Button>
+          <Button variant="light" loading={saveG.isPending} onClick={() => { saveG.mutate(); setTimeout(() => qc.invalidateQueries({ queryKey: ["gck-google"] }), 800); }}>Сохранить</Button>
+        </Group>
+        <Text size="xs" c="dimmed" mt={4}>Сейчас сохранён: {ginfo.data?.email ? <>{ginfo.data.name ? `${ginfo.data.name} · ` : ""}<Code>{ginfo.data.email}</Code></> : ginfo.data?.error ? <Text span c="red">{ginfo.data.error}</Text> : "ключа нет"}</Text>
       </Paper>
 
       <Paper p="xs" style={{ overflowX: "auto" }}>

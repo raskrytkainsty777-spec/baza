@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import CabClient, CabContact, CabSource
+from ..models import CabClient, CabContact, CabSource, LgSetting
 from ..services.leadsfactory.client import LFError, PHONE_SUPPLIERS, lf_for
 from ..workers.common import as_int, log_event, settings_all, utcnow
 from .cab_auth import create_session, hash_password
@@ -150,6 +150,38 @@ async def patch_client(client_id: int, body: ClientPatch, db: AsyncSession = Dep
         c.lf_crm_id = body.lf_crm_id
     await db.commit()
     return _dto(c)
+
+
+class GoogleKeyIn(BaseModel):
+    json_key: str
+
+
+@router.post("/google/check")
+async def google_check(body: GoogleKeyIn, db: AsyncSession = Depends(get_db)):
+    """Проверить JSON сервисного аккаунта: разобрать, получить токен у Google. Ничего не сохраняет."""
+    import json as _json
+    from ..services import google_sheets as gs
+    try:
+        info = _json.loads(body.json_key)
+    except ValueError as e:
+        raise HTTPException(400, f"JSON не разбирается: {e}")
+    if info.get("type") != "service_account" or not info.get("client_email") or not info.get("private_key"):
+        raise HTTPException(400, "Это не ключ сервисного аккаунта: нужны type=service_account, client_email, private_key")
+    try:
+        return await gs.check_key(info)
+    except gs.GSError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/google/info")
+async def google_info(db: AsyncSession = Depends(get_db)):
+    from ..services import google_sheets as gs
+    name = (await db.execute(select(LgSetting.value).where(LgSetting.key == "google_sa_name"))).scalar() or ""
+    try:
+        info = await gs.sa_info(db)
+    except gs.GSError as e:
+        return {"email": None, "name": name, "error": str(e)}
+    return {"email": info["client_email"] if info else None, "name": name, "project_id": info.get("project_id") if info else None}
 
 
 @router.post("/clients/{client_id}/session")

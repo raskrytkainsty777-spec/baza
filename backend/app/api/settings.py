@@ -38,6 +38,8 @@ DEFAULTS: dict[str, str] = {
     "gck_answer_cost": "5",                # LF: price per contact (answer_cost) for new clients
     "gck_limit_default": "5",              # LF: default tag limit for new clients
     "cab_telegram_bot_token": "",          # bot for client notifications (cabinet)
+    "google_sa_json": "",                  # Google service account key (JSON) for client sheets, one for all clients
+    "google_sa_name": "",                  # how the account is titled in client cabinets
     "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",

@@ -49,7 +49,7 @@ export default function CabSettings() {
           </Paper>
           <Paper>
             <Text fw={600} mb="xs">Интеграции и Telegram</Text>
-            <Text size="sm" c="dimmed">Google Таблицы, Bitrix24, AmoCRM, внешний коннектор и бот с вечерней сводкой — следующий этап, появятся здесь.</Text>
+            <Text size="sm" c="dimmed">Google Таблицы и внешний коннектор — во вкладке «Интеграции». Bitrix24, AmoCRM и бот с вечерней сводкой — следующий шаг.</Text>
           </Paper>
         </Stack>
       </Group>

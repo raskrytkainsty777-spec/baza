@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(requir
 
 RUNNABLE = ("new_posts", "counters")
 WORKERS = ("job_runner", "discovery", "donor_intake", "comments_collect", "posts_sync",
-           "ai_posts", "ai_comments", "probe_feeder", "outbox", "inbox", "cab_sync", "cab_inbox", "cab_schedule")
+           "ai_posts", "ai_comments", "probe_feeder", "outbox", "inbox", "cab_sync", "cab_inbox", "cab_schedule", "cab_deliver")
 
 
 class Switches(BaseModel):

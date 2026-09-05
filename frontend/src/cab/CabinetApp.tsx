@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell, Badge, Box, Button, Center, Group, NavLink, Paper, PasswordInput, ScrollArea, Stack, Text, TextInput, Title, UnstyledButton } from "@mantine/core";
-import { IconBan, IconBuilding, IconDatabase, IconListDetails, IconLogout, IconSettings, IconUsersGroup } from "@tabler/icons-react";
+import { IconBan, IconBuilding, IconDatabase, IconListDetails, IconLogout, IconPlug, IconSettings, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { cabApi, cabToken, clearCabToken, setCabToken } from "./api";
 import { n } from "../ui";
@@ -11,6 +11,7 @@ import Companies from "./pages/Companies";
 import Base from "./pages/Base";
 import Blacklist from "./pages/Blacklist";
 import CabSettings from "./pages/CabSettings";
+import Integrations from "./pages/Integrations";
 
 const NAV = [
   { to: "/cabinet", label: "Источники", icon: IconListDetails, end: true },
@@ -18,6 +19,7 @@ const NAV = [
   { to: "/cabinet/base", label: "База", icon: IconDatabase },
   { to: "/cabinet/blacklist", label: "Чёрный список", icon: IconBan },
   { to: "/cabinet/dosbor", label: "Досбор", icon: IconUsersGroup },
+  { to: "/cabinet/integrations", label: "Интеграции", icon: IconPlug },
   { to: "/cabinet/settings", label: "Настройки", icon: IconSettings },
 ];
 
@@ -118,6 +120,7 @@ export default function CabinetApp() {
               <Route path="base" element={<Base />} />
               <Route path="blacklist" element={<Blacklist />} />
               <Route path="dosbor" element={<Dosbor />} />
+              <Route path="integrations" element={<Integrations />} />
               <Route path="settings" element={<CabSettings />} />
               <Route path="*" element={<Sources />} />
             </Routes>
