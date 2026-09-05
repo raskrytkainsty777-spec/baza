@@ -4,7 +4,7 @@ Bitrix24 и AmoCRM — следующим шагом. Каждую можно п
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -167,8 +167,7 @@ async def delete(integration_id: int, c: CabClient = Depends(require_client), db
     i = await db.get(CabIntegration, integration_id)
     if not i or i.client_id != c.id:
         raise HTTPException(404, "Интеграция не найдена")
-    rows = (await db.execute(select(CabOutbox).where(CabOutbox.integration_id == i.id))).scalars().all()
-    for r in rows:
-        await db.delete(r)
+    await db.execute(sa_delete(CabOutbox).where(CabOutbox.integration_id == i.id))   # сначала очередь: FK, ORM порядок не гарантирует
+    await db.flush()
     await db.delete(i)
     await db.commit()
