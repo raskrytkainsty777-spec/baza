@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Badge, Button, Checkbox, Code, Group, Modal, MultiSelect, NumberInput, Paper, PasswordInput, Select, Stack, Switch, Table, Tabs, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Badge, Button, Checkbox, Code, Group, Modal, MultiSelect, NumberInput, Paper, PasswordInput, Select, SimpleGrid, Stack, Switch, Table, Tabs, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,7 +25,7 @@ function Agents() {
   return (
     <>
       <Group justify="space-between" mb="xs"><Text c="dimmed" size="sm">агенты ищут новые номера-источники на сайтах из списка и получают оплату за каждый уникальный · вход агентов: <Code>{location.origin}/agent</Code></Text><Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Добавить агента</Button></Group>
-      <Paper p="xs">
+      <Paper p="xs" style={{ overflowX: "auto" }}>
         <Table fz="xs" verticalSpacing={5} className="compact">
           <Table.Thead><Table.Tr><Table.Th>Агент</Table.Th><Table.Th>Логин</Table.Th><Table.Th ta="right">Найдено</Table.Th><Table.Th ta="right">Баланс</Table.Th><Table.Th ta="right">Выплачено</Table.Th><Table.Th>Реквизиты</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
@@ -85,7 +85,7 @@ function Lists() {
   return (
     <>
       <Group justify="space-between" mb="xs"><Text c="dimmed" size="sm">списки сайтов для агентов: строка «сайт;компания» — компания нужна, чтобы агент привязал найденный номер к ней</Text><Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Добавить ресурсы</Button></Group>
-      <Paper p="xs">
+      <Paper p="xs" style={{ overflowX: "auto" }}>
         <Table fz="xs" verticalSpacing={5} className="compact">
           <Table.Thead><Table.Tr><Table.Th>Список</Table.Th><Table.Th ta="right">Сайтов</Table.Th><Table.Th ta="right">Компаний</Table.Th><Table.Th>Создан</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>
@@ -188,10 +188,10 @@ function TasksTab() {
       <Modal opened={!!stat} onClose={() => setStat(null)} title={`Статистика: ${stat?.name}`} size="lg">
         {stats.data && <>
           <Text size="sm" mb="xs">Найдено {n(stats.data.task.found)}{stats.data.task.limit_sources ? ` из ${n(stats.data.task.limit_sources)}` : ""} · в закупке {n(stats.data.purchased)}</Text>
-          <Group align="flex-start" grow>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <Table fz="xs"><Table.Thead><Table.Tr><Table.Th>Агент</Table.Th><Table.Th ta="right">Найдено</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{stats.data.by_agent.map((r: any) => <Table.Tr key={r.agent}><Table.Td>{r.agent}</Table.Td><Table.Td className="num" ta="right">{r.count}</Table.Td></Table.Tr>)}</Table.Tbody></Table>
             <Table fz="xs"><Table.Thead><Table.Tr><Table.Th>День</Table.Th><Table.Th>Агент</Table.Th><Table.Th ta="right">Найдено</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{stats.data.by_day.map((r: any, i: number) => <Table.Tr key={i}><Table.Td className="num">{r.day}</Table.Td><Table.Td>{r.agent}</Table.Td><Table.Td className="num" ta="right">{r.count}</Table.Td></Table.Tr>)}</Table.Tbody></Table>
-          </Group>
+          </SimpleGrid>
         </>}
       </Modal>
     </>

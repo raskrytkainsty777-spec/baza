@@ -2,6 +2,9 @@
 Bitrix24 и AmoCRM — следующим шагом. Каждую можно проверить, отправить тестовый лид,
 выключить, удалить.
 """
+import secrets
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select
@@ -9,8 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import CabClient, CabIntegration, CabOutbox, LgSetting
+from ..services import amocrm, bitrix
 from ..services import google_sheets as gs
-from ..workers.cab_deliver import DEFAULT_COLUMNS, FIELDS, FIELD_KEYS, FIELD_LABELS, deliver_connector, deliver_gsheets, test_payload
+from ..services import telegram_bot as tg
+from ..workers.cab_deliver import DEFAULT_COLUMNS, FIELDS, FIELD_KEYS, FIELD_LABELS, deliver_connector, deliver_gsheets, deliver_one, test_payload
+from ..workers.cab_notify import summary_text
 from ..workers.common import utcnow
 from .cab_auth import require_client
 
@@ -32,8 +38,12 @@ class CheckIn(BaseModel):
 
 def _dto(i: CabIntegration, stats: dict | None = None) -> dict:
     cfg = dict(i.config or {})
-    if "secret" in cfg and cfg["secret"]:
+    if cfg.get("secret"):
         cfg["secret_set"], cfg["secret"] = True, ""
+    if cfg.get("webhook"):
+        cfg["webhook_set"], cfg["webhook_host"], cfg["webhook"] = True, urlparse(cfg["webhook"]).netloc, ""
+    if cfg.get("token"):
+        cfg["token_set"], cfg["token"] = True, ""
     return {"id": i.id, "kind": i.kind, "config": cfg, "enabled": i.enabled, "status": i.status, "last_error": i.last_error,
             "last_test_at": i.last_test_at, "created_at": i.created_at, **(stats or {})}
 
@@ -76,9 +86,72 @@ def _clean(kind: str, config: dict) -> dict:
             raise HTTPException(400, "URL коннектора должен начинаться с http:// или https://")
         return {"url": url, "method": "GET" if (config.get("method") or "").upper() == "GET" else "POST",
                 "secret": (config.get("secret") or "").strip(), "skip_repeats": bool(config.get("skip_repeats", True))}
-    if kind in ("bitrix", "amo"):
-        raise HTTPException(400, "Bitrix24 и AmoCRM подключим следующим шагом")
+    if kind == "bitrix":
+        wh = (config.get("webhook") or "").strip()
+        if wh:
+            try:
+                wh = bitrix.norm_webhook(wh)
+            except bitrix.BitrixError as e:
+                raise HTTPException(400, str(e))
+        entity = "deal" if config.get("entity") == "deal" else "lead"
+        return {"webhook": wh, "entity": entity, "responsible_id": _int(config.get("responsible_id")),
+                "status_id": str(config.get("status_id") or "") if entity == "lead" else "",
+                "category_id": _int(config.get("category_id")) or 0, "stage_id": str(config.get("stage_id") or "") if entity == "deal" else "",
+                "phone_type": config.get("phone_type") or "MOBILE", "source_id": str(config.get("source_id") or ""),
+                "dedupe": bool(config.get("dedupe", True)), "skip_repeats": bool(config.get("skip_repeats", True))}
+    if kind == "amo":
+        sub = ""
+        if config.get("subdomain"):
+            try:
+                sub = amocrm.norm_subdomain(config["subdomain"])
+            except amocrm.AmoError as e:
+                raise HTTPException(400, str(e))
+        return {"subdomain": sub, "token": (config.get("token") or "").strip(), "pipeline_id": _int(config.get("pipeline_id")),
+                "status_id": _int(config.get("status_id")), "responsible_id": _int(config.get("responsible_id")),
+                "phone_type": config.get("phone_type") or "MOB", "tag": (config.get("tag") or "ГЦК").strip()[:50],
+                "dedupe": bool(config.get("dedupe", True)), "skip_repeats": bool(config.get("skip_repeats", True))}
     raise HTTPException(400, f"kind: {' | '.join(KINDS)}")
+
+
+def _int(v) -> int | None:
+    try:
+        return int(v) if v not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        return None
+
+
+SECRET_KEYS = {"connector": ["secret"], "bitrix": ["webhook"], "amo": ["token", "subdomain"]}
+
+
+async def _existing(db: AsyncSession, c: CabClient, kind: str) -> CabIntegration | None:
+    return (await db.execute(select(CabIntegration).where(CabIntegration.client_id == c.id, CabIntegration.kind == kind))).scalar_one_or_none()
+
+
+async def _fill_secrets(db: AsyncSession, c: CabClient, kind: str, cfg: dict) -> dict:
+    """Секрет в форме пустой — берём сохранённый (форма секрет обратно не получает)."""
+    ex = await _existing(db, c, kind)
+    if ex:
+        for k in SECRET_KEYS.get(kind, []):
+            if not cfg.get(k) and (ex.config or {}).get(k):
+                cfg[k] = ex.config[k]
+    return cfg
+
+
+async def _crm_check(kind: str, cfg: dict) -> dict:
+    try:
+        if kind == "bitrix":
+            if not cfg.get("webhook"):
+                raise bitrix.BitrixError("Вставьте адрес входящего вебхука")
+            bx = bitrix.Bitrix(cfg["webhook"])
+            await bx.check()
+            return {"ok": True, **(await bx.refs())}
+        if not cfg.get("subdomain") or not cfg.get("token"):
+            raise amocrm.AmoError("Нужны поддомен и долгосрочный токен")
+        amo = amocrm.Amo(cfg["subdomain"], cfg["token"])
+        acc = await amo.check()
+        return {"ok": True, **acc, **(await amo.refs())}
+    except (bitrix.BitrixError, amocrm.AmoError) as e:
+        raise HTTPException(400, str(e))
 
 
 @router.post("/check")
@@ -102,16 +175,21 @@ async def check(body: CheckIn, c: CabClient = Depends(require_client), db: Async
         except Exception as e:   # noqa: BLE001
             raise HTTPException(400, f"Коннектор не принял тестовый лид: {e}")
         return {"ok": True}
-    raise HTTPException(400, "Проверка доступна для gsheets и connector")
+    if body.kind in ("bitrix", "amo"):
+        cfg = await _fill_secrets(db, c, body.kind, dict(body.config))
+        return await _crm_check(body.kind, cfg)
+    raise HTTPException(400, "Проверка доступна для gsheets, connector, bitrix, amo")
 
 
 @router.post("", status_code=201)
 async def create(body: IntegrationIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
-    cfg = _clean(body.kind, body.config)
-    existing = (await db.execute(select(CabIntegration).where(CabIntegration.client_id == c.id, CabIntegration.kind == body.kind))).scalar_one_or_none()
+    cfg = await _fill_secrets(db, c, body.kind, _clean(body.kind, body.config))
+    if body.kind == "bitrix" and not cfg.get("webhook"):
+        raise HTTPException(400, "Вставьте адрес входящего вебхука")
+    if body.kind == "amo" and (not cfg.get("subdomain") or not cfg.get("token")):
+        raise HTTPException(400, "Нужны поддомен и долгосрочный токен")
+    existing = await _existing(db, c, body.kind)
     if existing:
-        if body.kind == "connector" and not cfg.get("secret") and (existing.config or {}).get("secret"):
-            cfg["secret"] = existing.config["secret"]
         existing.config, existing.enabled, existing.status, existing.last_error = cfg, body.enabled, "new", None
         i = existing
     else:
@@ -136,20 +214,52 @@ async def test(integration_id: int, c: CabClient = Depends(require_client), db: 
     if not i or i.client_id != c.id:
         raise HTTPException(404, "Интеграция не найдена")
     p = test_payload()
+    note = None
     try:
         if i.kind == "gsheets":
             await deliver_gsheets(db, i, [p])
-        elif i.kind == "connector":
-            await deliver_connector(i, p)
         else:
-            raise HTTPException(400, "Тест для этой интеграции пока недоступен")
+            note = await deliver_one(i, p)
         i.status, i.last_error, i.last_test_at = "ok", None, utcnow()
-    except (gs.GSError, RuntimeError) as e:
+    except Exception as e:   # noqa: BLE001
         i.status, i.last_error, i.last_test_at = "error", str(e)[:400], utcnow()
         await db.commit()
         raise HTTPException(400, str(e))
     await db.commit()
-    return {"ok": True, "sent": p}
+    return {"ok": True, "sent": p, "note": note}
+
+
+# ── Telegram ──────────────────────────────────────────────────────────────────────
+
+@router.get("/telegram")
+async def telegram_info(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    token = await tg.bot_token(db)
+    username = await tg.bot_username(token) if token else None
+    if not c.tg_connect_code:
+        c.tg_connect_code = secrets.token_urlsafe(9)
+        await db.commit()
+    return {"configured": bool(token), "bot": username, "connected": bool(c.tg_chat_id), "code": c.tg_connect_code,
+            "link": f"https://t.me/{username}?start={c.tg_connect_code}" if username else None}
+
+
+@router.post("/telegram/disconnect")
+async def telegram_disconnect(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    c.tg_chat_id = None
+    c.tg_connect_code = secrets.token_urlsafe(9)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/telegram/test")
+async def telegram_test(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    token = await tg.bot_token(db)
+    if not token or not c.tg_chat_id:
+        raise HTTPException(400, "Бот не подключён")
+    try:
+        await tg.send(token, c.tg_chat_id, await summary_text(db, c))
+    except Exception as e:   # noqa: BLE001
+        raise HTTPException(400, f"Не отправилось: {e}")
+    return {"ok": True}
 
 
 @router.patch("/{integration_id}")

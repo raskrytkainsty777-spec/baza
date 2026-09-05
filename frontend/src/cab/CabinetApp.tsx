@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { AppShell, Badge, Box, Button, Center, Group, NavLink, Paper, PasswordInput, ScrollArea, Stack, Text, TextInput, Title, UnstyledButton } from "@mantine/core";
+import { AppShell, Badge, Box, Burger, Button, Center, Group, NavLink, Paper, PasswordInput, ScrollArea, Stack, Text, TextInput, Title, UnstyledButton } from "@mantine/core";
 import { IconBan, IconBuilding, IconDatabase, IconListDetails, IconLogout, IconPlug, IconSettings, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { cabApi, cabToken, clearCabToken, setCabToken } from "./api";
@@ -41,8 +41,8 @@ function CabLogin() {
     } catch (ex: any) { setErr(ex.message || "Ошибка"); } finally { setBusy(false); }
   };
   return (
-    <Center h="100vh" bg="gray.0">
-      <Paper w={380} shadow="sm">
+    <Center mih="100vh" bg="gray.0" p="md">
+      <Paper w="100%" maw={380} shadow="sm">
         <form onSubmit={submit}>
           <Stack gap="md">
             <div><Title order={3}>Кабинет закупки</Title><Text size="sm" c="dimmed">Вход для клиентов</Text></div>
@@ -61,8 +61,17 @@ function Shell({ children }: { children: React.ReactNode }) {
   const nav = useNavigate();
   const me = useMe();
   const m = me.data;
+  const [opened, setOpened] = useState(false);
+  useEffect(() => setOpened(false), [loc.pathname]);
   return (
-    <AppShell navbar={{ width: 220, breakpoint: "sm" }} padding="lg" bg="gray.0">
+    <AppShell header={{ height: { base: 48, sm: 0 } }} navbar={{ width: 220, breakpoint: "sm", collapsed: { mobile: !opened } }} padding={{ base: "sm", sm: "lg" }} bg="gray.0">
+      <AppShell.Header hiddenFrom="sm" px="sm" bg="white">
+        <Group h="100%" gap="sm">
+          <Burger opened={opened} onClick={() => setOpened((o) => !o)} size="sm" aria-label="меню" />
+          <Text fw={600} size="sm">{m?.name || "кабинет"}</Text>
+          {m && <Badge size="sm" variant="light" color={m.balance_contacts ? "teal" : "red"} style={{ textTransform: "none" }} ml="auto">{m.balance_contacts == null ? "—" : n(m.balance_contacts)} конт.</Badge>}
+        </Group>
+      </AppShell.Header>
       <AppShell.Navbar p="sm" bg="white">
         <Group px="xs" py="sm" gap="xs">
           <Box w={26} h={26} bg="teal.6" style={{ borderRadius: 7, display: "grid", placeItems: "center" }}><Text c="white" fw={700} size="sm">г</Text></Box>

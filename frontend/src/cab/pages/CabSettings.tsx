@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Checkbox, Code, Group, NumberInput, Paper, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Button, Checkbox, Code, Group, NumberInput, Paper, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cabApi } from "../api";
@@ -19,10 +19,14 @@ export default function CabSettings() {
   const m = me.data;
   const hookUrl = m ? `${location.origin}/api/cab/hook/${m.hook_token}` : "";
   const supOpts = (suppliers.data?.items || []).filter((s: any) => s.available);
+  const tg = useQuery({ queryKey: ["cab-telegram"], queryFn: () => cabApi("/integrations/telegram"), refetchInterval: 15_000 });
+  const tgOff = useMutation({ mutationFn: () => cabApi("/integrations/telegram/disconnect", { method: "POST" }), onSuccess: () => qc.invalidateQueries({ queryKey: ["cab-telegram"] }), onError: (e: any) => notifications.show({ color: "red", message: e.message }) });
+  const tgTest = useMutation({ mutationFn: () => cabApi("/integrations/telegram/test", { method: "POST" }), onSuccess: () => notifications.show({ color: "green", message: "Сводка отправлена в Telegram" }), onError: (e: any) => notifications.show({ color: "red", message: e.message }) });
+  const t = tg.data;
   return (
     <>
       <Group justify="space-between" mb="md"><Title order={2}>Настройки</Title><Button loading={save.isPending} onClick={() => save.mutate()}>Сохранить</Button></Group>
-      <Group align="flex-start" grow>
+      <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Stack>
           <Paper>
             <Text fw={600} mb="xs">Экономика для вкладки «Компании»</Text>
@@ -48,11 +52,27 @@ export default function CabSettings() {
             <Text size="sm" mt="xs">POST с JSON <Code>{`{"phone": "79991112233", "status": "lead"}`}</Code> или GET <Code>?phone=…&status=…</Code>. Статусы: <Code>unsuccessful</Code> неуспешный, <Code>lead</Code> лид, <Code>qual</Code> квал-лид (принимаем и по-русски). Номер ищется среди купленных контактов, результат ложится в «Компании» и «Базу».</Text>
           </Paper>
           <Paper>
-            <Text fw={600} mb="xs">Интеграции и Telegram</Text>
-            <Text size="sm" c="dimmed">Google Таблицы и внешний коннектор — во вкладке «Интеграции». Bitrix24, AmoCRM и бот с вечерней сводкой — следующий шаг.</Text>
+            <Group justify="space-between" mb="xs"><Text fw={600}>Telegram — сводка в 19:00 МСК</Text>{t && <Badge size="sm" variant="light" color={t.connected ? "green" : "gray"}>{t.connected ? "подключён" : "не подключён"}</Badge>}</Group>
+            {!t ? <Text size="sm" c="dimmed">…</Text> : !t.configured || !t.bot ? <Text size="sm" c="dimmed">Бот у нас пока не настроен — напишите администратору.</Text> : t.connected ? (
+              <Group gap="xs">
+                <Text size="sm">Каждый день в 19:00 МСК бот <Anchor href={`https://t.me/${t.bot}`} target="_blank">@{t.bot}</Anchor> присылает: куплено сегодня, за неделю, баланс и на сколько дней его хватит, топ источников. Команда /stats — сводка сейчас.</Text>
+                <Button size="xs" variant="light" loading={tgTest.isPending} onClick={() => tgTest.mutate()}>Прислать сводку сейчас</Button>
+                <Button size="xs" variant="subtle" color="red" loading={tgOff.isPending} onClick={() => tgOff.mutate()}>Отключить</Button>
+              </Group>
+            ) : (
+              <Stack gap="xs">
+                <Text size="sm">Нажмите кнопку — откроется Telegram, там нажмите «Start». Уведомления получает только тот, кто подключил.</Text>
+                <Button component="a" href={t.link} target="_blank" w="fit-content">Подключить бота @{t.bot}</Button>
+                <Text size="xs" c="dimmed">или отправьте боту команду <Code>/start {t.code}</Code></Text>
+              </Stack>
+            )}
+          </Paper>
+          <Paper>
+            <Text fw={600} mb="xs">Куда уходят контакты</Text>
+            <Text size="sm" c="dimmed">Google Таблицы, Bitrix24, AmoCRM и свой URL — во вкладке «Интеграции».</Text>
           </Paper>
         </Stack>
-      </Group>
+      </SimpleGrid>
     </>
   );
 }

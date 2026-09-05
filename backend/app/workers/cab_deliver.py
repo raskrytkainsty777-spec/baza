@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
 from ..models import CabClient, CabCompany, CabContact, CabIntegration, CabOutbox
+from ..services import amocrm, bitrix
 from ..services import google_sheets as gs
 from ..services.leadsfactory.client import MSK, SUPPLIERS
 from .common import heartbeat, utcnow
@@ -120,11 +121,7 @@ async def _pass(db: AsyncSession) -> None:
                         r.state, r.last_error = "dead", "контакт не найден"
                         continue
                     try:
-                        if integ.kind == "connector":
-                            await deliver_connector(integ, p)
-                        else:
-                            raise RuntimeError(f"интеграция {integ.kind} ещё не подключена")
-                        _sent(r)
+                        _sent(r, await deliver_one(integ, p))
                     except Exception as e:   # noqa: BLE001
                         item_error = str(e)[:400]
                         _failed(r, item_error)
@@ -141,8 +138,20 @@ async def _pass(db: AsyncSession) -> None:
         await db.commit()
 
 
-def _sent(r: CabOutbox) -> None:
-    r.state, r.sent_at, r.last_error = "sent", utcnow(), None
+def _sent(r: CabOutbox, note: str | None = None) -> None:
+    r.state, r.sent_at, r.last_error = "sent", utcnow(), (note[:400] if note else None)
+
+
+async def deliver_one(integ: CabIntegration, p: dict) -> str | None:
+    """Один контакт в поштучную интеграцию. Возвращает заметку (что создали / почему пропустили)."""
+    if integ.kind == "connector":
+        await deliver_connector(integ, p)
+        return None
+    if integ.kind == "bitrix":
+        return await bitrix.push(integ.config or {}, p)
+    if integ.kind == "amo":
+        return await amocrm.push(integ.config or {}, p)
+    raise RuntimeError(f"интеграция {integ.kind} не поддерживается")
 
 
 def _failed(r: CabOutbox, msg: str) -> None:

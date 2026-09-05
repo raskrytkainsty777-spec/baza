@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Checkbox, Collapse, Group, MultiSelect, NumberInput, Pagination, Paper, Select, Table, Text, TextInput, Textarea, Title, Tooltip } from "@mantine/core";
+import { Badge, Button, Checkbox, Collapse, Group, MultiSelect, NumberInput, Pagination, Paper, Select, SimpleGrid, Table, Text, TextInput, Textarea, Title, Tooltip } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -78,7 +78,7 @@ export default function Sources() {
 
       <Collapse in={open}>
         <Paper mb="sm">
-          <Group align="flex-start" grow>
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
             <Textarea label="Номера" description={`по одному в строке; можно «номер${delim}компания»`} autosize minRows={5} maxRows={14} value={text} onChange={(e) => setText(e.currentTarget.value)} placeholder={`79112223344${delim}Алые паруса\n78123334455`} />
             <div>
               <Select label="Разделитель" value={delim} onChange={(v) => setDelim(v || ";")} data={[{ value: ";", label: "; точка с запятой" }, { value: ",", label: ", запятая" }, { value: "\t", label: "табуляция" }, { value: "|", label: "| вертикальная черта" }]} />
@@ -89,7 +89,7 @@ export default function Sources() {
               <MultiSelect label="Регионы (необязательно)" data={geoOpts} value={geoAdd} onChange={setGeoAdd} searchable clearable mt="xs" />
               <Button mt="sm" loading={add.isPending} disabled={!text.trim() || !sup.length} onClick={() => add.mutate()}>Добавить</Button>
             </div>
-          </Group>
+          </SimpleGrid>
         </Paper>
       </Collapse>
 
@@ -103,7 +103,7 @@ export default function Sources() {
       </Paper>
 
       <Group mb="xs" gap={6}>
-        <TextInput size="xs" w={220} placeholder="номер или компания…" value={search} onChange={(e) => setSearch(e.currentTarget.value)} />
+        <TextInput size="xs" w={220} maw="100%" placeholder="номер или компания…" value={search} onChange={(e) => setSearch(e.currentTarget.value)} />
         <Select size="xs" w={150} value={status} onChange={(v) => setStatus(v || "")} data={STATUS} />
         <Select size="xs" w={90} value={size} onChange={(v) => setSize(v || "20")} data={[{ value: "20", label: "20" }, { value: "50", label: "50" }, { value: "100", label: "100" }, { value: "all", label: "все" }]} />
       </Group>

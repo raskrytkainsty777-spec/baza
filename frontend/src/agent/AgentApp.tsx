@@ -22,7 +22,7 @@ function Login() {
   const [login, setLogin] = useState(""); const [password, setPassword] = useState(""); const [e, setE] = useState(""); const [busy, setBusy] = useState(false);
   const submit = async (ev: React.FormEvent) => { ev.preventDefault(); setBusy(true); setE(""); try { const r = await agentApi("/auth/login", { method: "POST", body: { login, password } }); localStorage.setItem(KEY, r.token); nav("/agent", { replace: true }); } catch (ex: any) { setE(ex.message); } finally { setBusy(false); } };
   return (
-    <Center h="100vh" bg="gray.0"><Paper w={360} shadow="sm"><form onSubmit={submit}><Stack gap="md">
+    <Center mih="100vh" bg="gray.0" p="md"><Paper w="100%" maw={360} shadow="sm"><form onSubmit={submit}><Stack gap="md">
       <div><Title order={3}>Досбор</Title><Text size="sm" c="dimmed">Вход для агентов</Text></div>
       <TextInput label="Логин" value={login} onChange={(ev) => setLogin(ev.currentTarget.value)} autoFocus />
       <PasswordInput label="Пароль" value={password} onChange={(ev) => setPassword(ev.currentTarget.value)} error={e || undefined} />
