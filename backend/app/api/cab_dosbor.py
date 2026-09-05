@@ -296,9 +296,11 @@ async def task_stats(task_id: int, c: CabClient = Depends(require_client), db: A
     if not t or t.client_id != c.id:
         raise HTTPException(404, "Задача не найдена")
     day = func.date(func.timezone("Europe/Moscow", CabFoundSource.added_at))
-    rows = (await db.execute(select(day, CabAgent.name, func.count()).join(CabAgent, CabAgent.id == CabFoundSource.agent_id)
+    rows = (await db.execute(select(day, CabAgent.name, func.count()).select_from(CabFoundSource)
+                             .join(CabAgent, CabAgent.id == CabFoundSource.agent_id)
                              .where(CabFoundSource.task_id == task_id).group_by(day, CabAgent.name).order_by(desc(day), CabAgent.name))).all()
-    by_agent = (await db.execute(select(CabAgent.name, func.count()).join(CabAgent, CabAgent.id == CabFoundSource.agent_id)
+    by_agent = (await db.execute(select(CabAgent.name, func.count()).select_from(CabFoundSource)
+                                 .join(CabAgent, CabAgent.id == CabFoundSource.agent_id)
                                  .where(CabFoundSource.task_id == task_id).group_by(CabAgent.name).order_by(desc(func.count())))).all()
     purchased = (await db.execute(select(func.count()).where(CabFoundSource.task_id == task_id, CabFoundSource.source_id.isnot(None)))).scalar() or 0
     return {"task": await _task_dto(db, t), "purchased": purchased,
