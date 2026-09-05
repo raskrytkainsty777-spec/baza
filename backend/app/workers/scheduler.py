@@ -5,13 +5,14 @@
 воркера логируется и перезапускается через паузу, не роняя остальных.
 """
 import asyncio
+import importlib
 import logging
 import signal
 
 from ..config import settings
 from . import (
-    ai_comments, ai_posts, comments_collect, discovery, donor_intake, inbox_worker, job_runner,
-    outbox_worker, posts_sync, probe_feeder,
+    ai_comments, ai_posts, cab_inbox, cab_schedule, cab_sync, comments_collect, discovery, donor_intake,
+    inbox_worker, job_runner, outbox_worker, posts_sync, probe_feeder,
 )
 
 logging.basicConfig(
@@ -34,7 +35,17 @@ WORKERS: list[tuple[str, callable]] = [
     ("probe_feeder", probe_feeder.run),
     ("outbox", outbox_worker.run),
     ("inbox", inbox_worker.run),
+    ("cab_sync", cab_sync.run),
+    ("cab_inbox", cab_inbox.run),
+    ("cab_schedule", cab_schedule.run),
 ]
+
+# воркеры следующих этапов подключаются, когда появятся
+for _name in ("cab_deliver", "cab_notify"):
+    try:
+        WORKERS.append((_name, importlib.import_module(f"app.workers.{_name}").run))
+    except ImportError:
+        pass
 
 
 async def _supervise(name: str, factory):

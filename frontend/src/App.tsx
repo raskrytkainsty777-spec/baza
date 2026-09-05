@@ -3,7 +3,7 @@ import { AppShell, Badge, Box, Group, NavLink, ScrollArea, Text, UnstyledButton 
 import { useQuery } from "@tanstack/react-query";
 import {
   IconBriefcase, IconBuildingCommunity, IconLayoutDashboard, IconListDetails, IconLogout,
-  IconNotebook, IconSearch, IconSettings, IconUsers,
+  IconNotebook, IconSearch, IconSettings, IconShoppingCart, IconUsers,
 } from "@tabler/icons-react";
 import { Login, RequireAuth } from "./auth";
 import { api, clearToken } from "./api";
@@ -14,6 +14,8 @@ import { Cities, CityPage } from "./pages/Cities";
 import Search from "./pages/Search";
 import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
+import Gck from "./pages/Gck";
+import CabinetApp from "./cab/CabinetApp";
 
 const NAV = [
   { to: "/", label: "Мастер задач", icon: IconLayoutDashboard, end: true },
@@ -22,6 +24,7 @@ const NAV = [
   { to: "/posts", label: "Посты", icon: IconListDetails },
   { to: "/cities", label: "Города", icon: IconBuildingCommunity },
   { to: "/jobs", label: "Задания и журнал", icon: IconBriefcase },
+  { to: "/gck", label: "ГЦК · закупка", icon: IconShoppingCart },
   { to: "/settings", label: "Настройки", icon: IconSettings },
 ];
 
@@ -72,7 +75,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Group gap="xs"><IconLogout size={16} stroke={1.6} /><Text size="sm" c="dimmed">Выйти</Text></Group>
         </UnstyledButton>
         <Text size="xs" c="dimmed" px="sm" pb="xs">
-          <IconNotebook size={12} style={{ verticalAlign: -2 }} /> v0.3 · {new Date().toLocaleDateString("ru-RU")}
+          <IconNotebook size={12} style={{ verticalAlign: -2 }} /> v0.4 · {new Date().toLocaleDateString("ru-RU")}
         </Text>
       </AppShell.Navbar>
       <AppShell.Main><StateStrip />{children}</AppShell.Main>
@@ -85,6 +88,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/cabinet/*" element={<CabinetApp />} />
         <Route path="/*" element={
           <RequireAuth>
             <Shell>
@@ -96,6 +100,7 @@ export default function App() {
                 <Route path="/cities" element={<Cities />} />
                 <Route path="/cities/:id" element={<CityPage />} />
                 <Route path="/jobs" element={<Jobs />} />
+                <Route path="/gck" element={<Gck />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="*" element={<Dashboard />} />
               </Routes>

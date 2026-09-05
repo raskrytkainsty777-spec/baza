@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_alert_chat_id: str = ""
 
+    # кабинет закупки (ГЦК): Leads Factory, бот клиентов, Google-таблицы
+    leadsfactory_base: str = "https://openapi.leads-factory.ru"
+    leadsfactory_token: str = ""            # запасной; основной — в настройках (leadsfactory_token)
+    cab_telegram_bot_token: str = ""        # запасной; основной — в настройках (cab_telegram_bot_token)
+    google_sa_json: str = ""                # путь к JSON сервисного аккаунта Google
+
     # лимиты
     apify_daily_cap_usd: float = 10.0
     parserim_max_parallel_jobs: int = Field(3, ge=1)

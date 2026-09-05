@@ -35,6 +35,9 @@ DEFAULTS: dict[str, str] = {
     "ai_model.cands": "anthropic/claude-haiku-4.5",         # small volume, city decision matters; cheap models agree 77-87%
     "ai_batch_size": "20",                 # comments of one post per AI call
     "leadsfactory_token": "",              # Leads Factory Open API bearer (vdl), issued in their cabinet
+    "gck_answer_cost": "5",                # LF: price per contact (answer_cost) for new clients
+    "gck_limit_default": "5",              # LF: default tag limit for new clients
+    "cab_telegram_bot_token": "",          # bot for client notifications (cabinet)
     "ai_enabled": "1",
     "schedule.new_posts": "09:00,21:00",
     "schedule.counters": "09:10",

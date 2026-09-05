@@ -7,6 +7,10 @@ from .posts import LgPost
 from .comments import LgComment
 from .leads import LgLead, LgOutbox, LgInbox
 from .jobs import LgJob, LgEvent, LgStatsDaily
+from .cabinet import (
+    CabClient, CabSession, CabCompany, CabSource, CabContact, CabBlacklist, CabInbox, CabIntegration,
+    CabOutbox, CabAgent, CabResourceList, CabResource, CabTask, CabTaskAgent, CabFoundSource, CabPayout,
+)
 
 __all__ = [
     "LgCity", "LgSetting",
@@ -15,4 +19,7 @@ __all__ = [
     "LgPost", "LgComment",
     "LgLead", "LgOutbox", "LgInbox",
     "LgJob", "LgEvent", "LgStatsDaily",
+    "CabClient", "CabSession", "CabCompany", "CabSource", "CabContact", "CabBlacklist", "CabInbox",
+    "CabIntegration", "CabOutbox", "CabAgent", "CabResourceList", "CabResource", "CabTask", "CabTaskAgent",
+    "CabFoundSource", "CabPayout",
 ]
