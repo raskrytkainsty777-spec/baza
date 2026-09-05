@@ -151,6 +151,59 @@ async def push_sources(db: AsyncSession, lf: LF, c: CabClient) -> None:
     log.info("клиент %s: источников в LF новых %d, обновлено %d, вызовов по тегам %d", c.login, len(new), len(dirty), len(calls))
 
 
+async def import_sources_from_lf(db: AsyncSession, lf: LF, c: CabClient) -> int:
+    """Привязали существующий проект LF — забираем его источники и теги к нам как есть.
+    Компания = подпись источника, поставщики = теги с включённой нормой, лимит = лимит тега."""
+    from ..models import CabCompany
+    have = {s.phone: s for s in (await db.execute(select(CabSource).where(CabSource.client_id == c.id))).scalars().all()}
+    tags = await lf.tags_all(c.lf_crm_id)
+    by_phone: dict[str, dict[str, dict]] = defaultdict(dict)
+    for t in tags:
+        parts = (t.get("name") or "").split("_")
+        if len(parts) >= 2:
+            by_phone[parts[1]][t["type"]] = t
+    comps: dict[str, CabCompany] = {}
+    added = 0
+    for lfs in await lf.sources_all(c.lf_crm_id):
+        phone = str(lfs.get("phone") or "")
+        if lfs.get("source_type") != "phone" or not phone:
+            continue
+        s = have.get(phone)
+        if s is None:
+            s = CabSource(client_id=c.id, phone=phone, lf_dirty=False)
+            db.add(s)
+            have[phone] = s
+            added += 1
+        label = (lfs.get("label") or "").strip()
+        if label:
+            key = label.lower()
+            comp = comps.get(key)
+            if comp is None:
+                comp = (await db.execute(select(CabCompany).where(CabCompany.client_id == c.id, func.lower(CabCompany.name) == key))).scalar_one_or_none()
+                if comp is None:
+                    comp = CabCompany(client_id=c.id, name=label[:200])
+                    db.add(comp)
+                    await db.flush()
+                comps[key] = comp
+            s.company_id = comp.id
+        s.lf_source_id = lfs["id"]
+        s.lf_will_work = lfs.get("will_work")
+        s.enabled_by_user = bool(lfs.get("will_work"))
+        s.lf_sebes_14 = lfs.get("sebes_14_days")
+        s.lf_success_14 = lfs.get("success_14_days")
+        ts = by_phone.get(phone, {})
+        s.lf_tags = {typ: t["id"] for typ, t in ts.items()}
+        on = [typ for typ, t in ts.items() if t.get("norm_work")]
+        s.suppliers = on
+        limits = [int(t.get("limit") or 0) for typ, t in ts.items() if t.get("norm_work")]
+        if limits:
+            s.limit = max(limits)
+        s.lf_dirty = False
+        s.lf_error = None
+    await db.commit()
+    return added
+
+
 async def push_blacklist(db: AsyncSession, lf: LF, c: CabClient) -> None:
     rows = (await db.execute(select(CabBlacklist).where(CabBlacklist.client_id == c.id, CabBlacklist.sent_at.is_(None)))).scalars().all()
     if not rows:

@@ -106,10 +106,31 @@ async def create_client(body: ClientCreate, db: AsyncSession = Depends(get_db)):
                   hook_token=secrets.token_urlsafe(24))
     db.add(c)
     await db.flush()
+    if body.lf_crm_id:
+        from ..workers.cab_sync import import_sources_from_lf
+        try:
+            n = await import_sources_from_lf(db, lf, c)
+            steps.append(f"из LF втянуто источников: {n}")
+        except LFError as e:
+            steps.append(f"импорт источников из LF не удался: {e}")
     await log_event(db, "gck.client_created", f"Клиент {login} → проект LF {crm_id}: " + "; ".join(steps),
                     entity="cab_client", entity_id=c.id)
     await db.commit()
     return _dto(c, {"steps": steps})
+
+
+@router.post("/clients/{client_id}/import-lf")
+async def import_lf(client_id: int, db: AsyncSession = Depends(get_db)):
+    """Повторно втянуть источники проекта LF (после правок в их кабинете руками)."""
+    from ..workers.cab_sync import import_sources_from_lf
+    c = await db.get(CabClient, client_id)
+    if not c or not c.lf_crm_id:
+        raise HTTPException(404, "Клиент не найден или без проекта LF")
+    try:
+        n = await import_sources_from_lf(db, await lf_for(db), c)
+    except LFError as e:
+        raise HTTPException(502, str(e))
+    return {"imported": n}
 
 
 @router.patch("/clients/{client_id}")
