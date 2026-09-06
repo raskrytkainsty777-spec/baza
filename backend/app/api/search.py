@@ -159,8 +159,9 @@ async def adopt(body: Adopt, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/followings/available")
-async def followings_available(city_id: int | None = None, db: AsyncSession = Depends(get_db)):
+async def followings_available(city_id: str | None = None, db: AsyncSession = Depends(get_db)):
     """Сколько доноров с лидами ещё не отдавали подписки — объём будущей задачи."""
+    city_id = int(city_id) if city_id and str(city_id).isdigit() else None
     free = (await db.execute(select(func.count()).select_from(followings_donors_stmt(city_id).subquery()))).scalar() or 0
     done_q = select(func.count()).select_from(LgDonor).where(LgDonor.followings_collected_at.isnot(None))
     if city_id:
