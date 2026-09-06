@@ -44,7 +44,7 @@ def _cut(v, n: int) -> str | None:
 
 async def _pass(db: AsyncSession) -> None:
     rows = (await db.execute(
-        select(LgPost, LgDonor, IgAccount.username).join(LgDonor, LgDonor.id == LgPost.donor_id)
+        select(LgPost, LgDonor, IgAccount).join(LgDonor, LgDonor.id == LgPost.donor_id)
         .join(IgAccount, IgAccount.id == LgPost.account_id)
         .where(or_(LgPost.is_selling.is_(None) & LgPost.ai_at.is_(None),
                    LgPost.is_selling.is_(True) & LgPost.offer_text.is_(None)))   # доразметка старых: offer_text появился 06.09
@@ -58,22 +58,25 @@ async def _pass(db: AsyncSession) -> None:
     with_city = base + "\n\n" + prompt("post_city", values, cities=cities)
     sem = asyncio.Semaphore(CONCURRENCY)
 
-    async def ask(p: LgPost, d: LgDonor, username: str):
+    async def ask(p: LgPost, d: LgDonor, acc: IgAccount):
+        username = acc.username
         if not (p.caption or "").strip():
             return None
         # город спрашиваем у всех постов заводимого донора: без города — чтобы его найти,
         # с городом — чтобы поймать переезд (донор из Москвы, а продаёт Сочи)
         need_city = p.city_source != "ai"
         system = (with_city if need_city else base) + (FORMAT % (", \"city\": null, \"city_confidence\": 0.0" if need_city else ""))
-        user = json.dumps({"donor": username, "city": None if need_city else None,
+        # профиль донора — подсказка для города: в посте «дом с платежом 40 тыс», а в описании «Сочи»
+        user = json.dumps({"donor": username,
+                           "donor_profile": {"name": acc.full_name, "bio": (acc.bio or "")[:500], "address": acc.address} if need_city else None,
                            "published": p.published_at.isoformat() if p.published_at else None,
                            "type": p.product_type, "caption": p.caption[:6000]}, ensure_ascii=False)
         async with sem:
             return await chat_json(system, user, model=model)
 
-    results = await asyncio.gather(*(ask(p, d, u) for p, d, u in rows), return_exceptions=True)
+    results = await asyncio.gather(*(ask(p, d, a) for p, d, a in rows), return_exceptions=True)
     cost, failed = 0.0, 0
-    for (p, d, username), r in zip(rows, results):
+    for (p, d, acc), r in zip(rows, results):
         if isinstance(r, BaseException):
             failed += 1
             log.warning("пост %s: %s", p.shortcode, r)
