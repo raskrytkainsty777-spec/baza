@@ -8,7 +8,7 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
@@ -69,8 +69,7 @@ async def _stage_ai_done(db: AsyncSession) -> None:
         total = (await db.execute(select(func.count()).select_from(LgPost).where(LgPost.donor_id == d.id))).scalar() or 0
         selling = (await db.execute(select(func.count()).select_from(LgPost).where(
             LgPost.donor_id == d.id, LgPost.is_selling.is_(True)))).scalar() or 0
-        if d.city_id is None and d.status == "unclassified":
-            await _city_from_posts(db, d)
+        await _city_from_posts(db, d)
         d.intake_stage = "comments"
         await log_event(db, "donor.intake", f"Донор #{d.id}: постов {total}, продающих {selling} — к первому сбору",
                         entity="donor", entity_id=d.id)
@@ -78,24 +77,33 @@ async def _stage_ai_done(db: AsyncSession) -> None:
         await db.commit()
 
 
+CITY_SHARE = 0.8   # доля продающих постов в одном городе, чтобы закрепить город за донором
+
+
 async def _city_from_posts(db: AsyncSession, d: LgDonor) -> None:
-    """Неразобранный донор: если у большинства его продающих постов один город (ИИ ставит город
-    каждому посту), донор переезжает в этот город и дальше живёт как обычный «новый»."""
+    """Город донора по его продающим постам (ИИ ставит город каждому). Правило заказчика:
+    ≥ 80 % постов в одном городе → донор в этом городе; без города остаётся где был;
+    с городом — переезжает, если ИИ уверенно видит другой. Посты идут за донором."""
     rows = (await db.execute(
         select(LgPost.city_id, func.count()).where(LgPost.donor_id == d.id, LgPost.is_selling.is_(True),
-                                                   LgPost.city_id.isnot(None))
+                                                   LgPost.city_id.isnot(None), LgPost.city_source == "ai")
         .group_by(LgPost.city_id).order_by(func.count().desc()))).all()
     if not rows:
         return
     top_city, top_n = rows[0]
     labelled = sum(n for _, n in rows)
-    if top_n < 2 or top_n / labelled < 0.6:
+    if top_n < 2 or top_n / labelled < CITY_SHARE or top_city == d.city_id:
         return
     city = await db.get(LgCity, top_city)
-    d.city_id, d.status, d.status_changed_at = top_city, "new", utcnow()
-    d.status_reason = f"город по постам: {top_n} из {labelled} продающих"
-    await log_event(db, "donor.city", f"Донор #{d.id}: город {city.name if city else top_city} по постам ({top_n} из {labelled})",
-                    entity="donor", entity_id=d.id)
+    was = await db.get(LgCity, d.city_id) if d.city_id else None
+    d.city_id, d.status_changed_at = top_city, utcnow()
+    if d.status == "unclassified":
+        d.status = "new"
+    d.status_reason = f"город по постам: {top_n} из {labelled} продающих" + (f", был {was.name}" if was else "")
+    await db.execute(update(LgPost).where(LgPost.donor_id == d.id, LgPost.city_source != "ai")
+                     .values(city_id=top_city, city_source="donor"))
+    await log_event(db, "donor.city", f"Донор #{d.id}: город {city.name if city else top_city} по постам "
+                    f"({top_n} из {labelled}){(' вместо ' + was.name) if was else ''}", entity="donor", entity_id=d.id)
 
 
 async def _stage_comments_done(db: AsyncSession, intake_days: int) -> None:

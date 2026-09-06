@@ -134,7 +134,7 @@ export default function Settings() {
               <NumberInput label="Потолок Apify, $/день" value={Number(v["apify_daily_cap_usd"] || 10)} onChange={(x) => set("apify_daily_cap_usd", x)} min={0} />
             </Group>
             <Switch mt="sm" label="Неразобранные доноры: собирать посты" description="у них нет города и нет флага города; ИИ ставит город каждому продающему посту. Выключено — ждут" checked={(v["unclassified_collect_posts"] ?? "0") === "1"} onChange={(e) => set("unclassified_collect_posts", e.currentTarget.checked ? "1" : "0")} />
-            <Switch mt="sm" label="Уверенных кандидатов распределять по городам автоматически" description="≥ 90% уверенности в городе и подходящая деятельность → донор города сразу, без кнопки; неясные ждут оператора" checked={(v["auto_distribute"] ?? "1") === "1"} onChange={(e) => set("auto_distribute", e.currentTarget.checked ? "1" : "0")} />
+            <Switch mt="sm" label="Уверенных кандидатов распределять по городам автоматически" description="≥ 80% уверенности в городе и подходящая деятельность → донор города сразу, без кнопки; неясные ждут оператора" checked={(v["auto_distribute"] ?? "1") === "1"} onChange={(e) => set("auto_distribute", e.currentTarget.checked ? "1" : "0")} />
             <Group grow mt="xs">
               <NumberInput label="Фильтр f1: последний пост не старше, дн" description="кто не проходит — «неактивен», в базу отклонённых" value={Number(v["f1_lastpost_days"] || 30)} onChange={(x) => set("f1_lastpost_days", x)} min={1} />
               <NumberInput label="Фильтр f1: подписчиков от" description="0 — без порога" value={Number(v["f1_followers_min"] || 0)} onChange={(x) => set("f1_followers_min", x)} min={0} />

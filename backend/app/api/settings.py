@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depe
 DEFAULTS: dict[str, str] = {
     "intake_days": "45",                    # окно постов при заводе донора
     "comment_fresh_days_default": "30",     # свежесть комментариев по умолчанию для городов
-    "parserim_lines": "10",                 # строк в тарифе parser.im
+    "parserim_lines": "10",                 # строк в тарифе parser.im (парсинг: посты, комментарии, теги, подписки)
+    "parserim_filter_lines": "10",          # потоков фильтра f1 в тарифе parser.im — отдельный пул
     "big_post_threshold": "1000",           # с какого числа комментариев пост досбирается через Apify
     "min_comments_first": "6",              # первый сбор: посты с меньшим числом комментариев пропускаем (прирост их подхватит)
     "f1_lastpost_days": "30",               # f1: отсев кандидатов, у кого последний пост старше N дней

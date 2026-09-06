@@ -20,7 +20,7 @@ log = logging.getLogger("ai_posts")
 POLL = 15
 BATCH = 12
 CONCURRENCY = 4
-CITY_CONFIDENT = 0.7
+CITY_CONFIDENT = 0.8
 FORMAT = ("\n\nФормат ответа: {\"is_selling\": true, \"offer\": \"…\", \"hook\": \"…\", \"category\": \"…\", "
           "\"cta_type\": \"…\", \"code_word\": null, \"summary\": \"…\"%s}")
 
@@ -59,7 +59,9 @@ async def _pass(db: AsyncSession) -> None:
     async def ask(p: LgPost, d: LgDonor, username: str):
         if not (p.caption or "").strip():
             return None
-        need_city = d.city_id is None and p.city_id is None
+        # город спрашиваем у всех постов заводимого донора: без города — чтобы его найти,
+        # с городом — чтобы поймать переезд (донор из Москвы, а продаёт Сочи)
+        need_city = p.city_source != "ai" and (d.city_id is None or d.intake_stage in ("ai", "posts_run"))
         system = (with_city if need_city else base) + (FORMAT % (", \"city\": null, \"city_confidence\": 0.0" if need_city else ""))
         user = json.dumps({"donor": username, "city": None if need_city else None,
                            "published": p.published_at.isoformat() if p.published_at else None,
@@ -88,14 +90,16 @@ async def _pass(db: AsyncSession) -> None:
         cw = r.get("code_word")
         p.code_word = _cut(cw.upper() if isinstance(cw, str) else None, 60)
         p.ai_summary = _cut(r.get("summary"), 1000)
-        if p.is_selling and d.city_id is None and p.city_id is None and r.get("city"):
+        if p.is_selling and r.get("city"):
             try:
                 conf = float(r.get("city_confidence") or 0)
             except (TypeError, ValueError):
                 conf = 0.0
             if conf >= CITY_CONFIDENT:
                 city = await get_or_create_city(db, str(r["city"]))
-                if city:
+                if city and (p.city_id is None or city.id != p.city_id):
+                    # пост уходит в город, который назвала ИИ; донора переселит donor_intake,
+                    # когда наберётся большинство
                     p.city_id, p.city_source = city.id, "ai"
     await add_ai_cost(db, cost)
     await db.commit()

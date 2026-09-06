@@ -192,14 +192,19 @@ async def _start_queued(db: AsyncSession) -> None:
     в своей очереди — тариф исчерпан, новых не запускаем, как бы мы ни считали у себя."""
     values = await settings_all(db)
     max_lines = as_int(values, "parserim_lines", 10)
+    filter_lines = as_int(values, "parserim_filter_lines", 10)   # у f1 в тарифе свои потоки
     collecting = values.get("collection_enabled") == "1"
     comments_on = values.get("comments_enabled") == "1"
     busy = 0
+    busy_filter = 0
     busy_by_kind: dict[str, int] = {}
     for kind, lines in (await db.execute(select(LgJob.kind, func.coalesce(func.sum(LgJob.lines), 0)).where(
             LgJob.provider == "parserim", LgJob.state == "running").group_by(LgJob.kind))).all():
         busy_by_kind[kind] = int(lines)
-        busy += int(lines)
+        if kind == "filter":
+            busy_filter += int(lines)
+        else:
+            busy += int(lines)
     queued = (await db.execute(select(LgJob).where(
         LgJob.provider == "parserim", LgJob.state == "queued")
         .order_by(LgJob.priority, LgJob.created_at))).scalars().all()
@@ -218,12 +223,16 @@ async def _start_queued(db: AsyncSession) -> None:
             if job.kind == "comments" and not comments_on:
                 continue
             need = job.lines or 1
-            if busy + need > max_lines:
-                continue
-            if pass_no == 1:
-                cap = int(max_lines * SHARES.get(job.kind, 0.2))
-                if busy_by_kind.get(job.kind, 0) + need > max(cap, need):
+            if job.kind == "filter":
+                if busy_filter + need > filter_lines:
                     continue
+            else:
+                if busy + need > max_lines:
+                    continue
+                if pass_no == 1:
+                    cap = int(max_lines * SHARES.get(job.kind, 0.2))
+                    if busy_by_kind.get(job.kind, 0) + need > max(cap, need):
+                        continue
             try:
                 tids = await _create(job)
             except pim.ParserImError as e:
@@ -239,7 +248,10 @@ async def _start_queued(db: AsyncSession) -> None:
                 continue
             job.external_id = ",".join(tids)[:60]
             job.state, job.started_at = "running", utcnow()
-            busy += need
+            if job.kind == "filter":
+                busy_filter += need
+            else:
+                busy += need
             busy_by_kind[job.kind] = busy_by_kind.get(job.kind, 0) + need
             await db.commit()
             log.info("запущено %s #%s → %s (%d строк, занято %d/%d)", job.kind, job.id, job.external_id, need, busy, max_lines)

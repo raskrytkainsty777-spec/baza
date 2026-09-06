@@ -30,7 +30,7 @@ log = logging.getLogger("discovery")
 POLL = 20
 AI_BATCH = 10
 AI_CONCURRENCY = 4
-CONFIDENT = 0.9
+CONFIDENT = 0.8
 F1_LASTPOST_DAYS = 30
 
 

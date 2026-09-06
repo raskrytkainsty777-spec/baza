@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import IgAccount, LgCandidate, LgDonor, LgEvent, LgSearchTask
 
-CONFIDENT = 0.9
+CONFIDENT = 0.8
 
 
 async def make_donor(db: AsyncSession, c: LgCandidate, city_id: int | None, task: LgSearchTask | None) -> bool:

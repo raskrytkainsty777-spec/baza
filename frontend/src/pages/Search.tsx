@@ -103,7 +103,7 @@ export default function Search() {
   return (
     <>
       <Group justify="space-between" mb="md">
-        <div><Title order={2}>Поиск доноров</Title><Text c="dimmed" size="sm">задачи идут сами: сбор → фильтр f1 → ИИ «кто и где» → уверенные (≥90%) сразу становятся донорами своих городов. Неясные — ниже, ждут вас.</Text></div>
+        <div><Title order={2}>Поиск доноров</Title><Text c="dimmed" size="sm">задачи идут сами: сбор → фильтр f1 → ИИ «кто и где» → уверенные (≥80%) сразу становятся донорами своих городов. Неясные — ниже, ждут вас.</Text></div>
       </Group>
 
       <Paper mb="md">
