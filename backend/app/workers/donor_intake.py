@@ -6,14 +6,14 @@
 """
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
 from ..models import IgAccount, LgCity, LgDonor, LgJob, LgPost
-from .common import as_int, chunks, collection_on, enqueue_job, heartbeat, log_event, settings_all, utcnow
+from .common import as_int, chunks, collection_on, enqueue_job, get_value, heartbeat, log_event, set_value, settings_all, utcnow
 
 log = logging.getLogger("donor_intake")
 
@@ -30,6 +30,8 @@ async def run():
                 await _stage_ai_done(db)
                 await _stage_comments_done(db, as_int(values, "intake_days", 45))
                 await _pause_silent(db)
+                if values.get("collection_enabled") == "1":
+                    await _recheck_silent(db, as_int(values, "silent_recheck_days", 14))
                 await heartbeat(db, "donor_intake")
         except Exception:
             log.exception("проход не удался")
@@ -133,6 +135,33 @@ async def _pause_silent(db: AsyncSession) -> None:
     if n:
         await log_event(db, "donor.paused", f"На паузу за молчание: {n} доноров")
         await db.commit()
+
+
+async def _recheck_silent(db: AsyncSession, every_days: int) -> None:
+    """Раз в every_days — одним заходом через parser.im проверяем доноров на паузе за молчание:
+    10 последних постов на каждого; появился новый пост → imports вернёт донора на монитор."""
+    last = await get_value(db, "last_run.silent_recheck")
+    if last:
+        try:
+            if utcnow() - datetime.fromisoformat(last) < timedelta(days=max(1, every_days)):
+                return
+        except ValueError:
+            pass
+    rows = (await db.execute(
+        select(LgDonor.id, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id)
+        .join(LgCity, LgCity.id == LgDonor.city_id)
+        .where(LgDonor.status == "paused", LgDonor.status_reason.like("нет постов%"),
+               LgCity.is_active.is_(True), LgCity.collect_posts.is_(True)).order_by(LgDonor.id))).all()
+    await set_value(db, "last_run.silent_recheck", utcnow().isoformat())
+    for chunk in chunks(rows, 10):
+        logins = [u for _, u in chunk]
+        await enqueue_job(db, provider="parserim", kind="posts_intake",
+                          purpose="Проверка молчащих: " + ", ".join(logins[:3]) + (f" +{len(logins) - 3}" if len(logins) > 3 else ""),
+                          payload={"logins": logins, "donor_ids": [d for d, _ in chunk], "limit": 10, "recheck": True},
+                          lines=len(logins), priority=45)
+    if rows:
+        await log_event(db, "donor.recheck", f"Проверка молчащих через parser.im: {len(rows)} доноров, по 10 постов")
+    await db.commit()
 
 
 async def _stage_comments_done(db: AsyncSession, intake_days: int) -> None:

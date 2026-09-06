@@ -220,6 +220,8 @@ async def import_posts(db: AsyncSession, job: LgJob, rows: list[dict], intake_da
         ).on_conflict_do_nothing(index_elements=["shortcode"]).returning(LgPost.id)
         if (await db.execute(stmt)).scalar():
             inserted += 1
+            if d.status == "paused" and (d.status_reason or "").startswith("нет постов"):
+                d.status, d.status_changed_at, d.status_reason = "monitored", utcnow(), "новый пост — снова на мониторе"
     if skipped_old:
         log.info("posts job %s: %d постов старше %d дн пропущено", job.id, skipped_old, intake_days)
     return inserted

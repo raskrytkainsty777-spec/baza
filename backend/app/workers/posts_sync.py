@@ -73,29 +73,15 @@ FRESH_DAYS = 7      # правило заказчика 06.09.2026: постит
 
 
 async def _monitored(db: AsyncSession) -> dict[str, LgDonor]:
-    """Кого обходим на новые посты. Каждый день — доноров с постом за 7 дней; раз в 3 дня — 8–14 дней;
-    раз в неделю — тех, кто на паузе за молчание (чтобы поймать возвращение). Так обход стоит
-    примерно вдвое дешевле полного, а активных не пропускаем."""
+    """Кого обходим на новые посты через Apify: только доноров на мониторе с постом за 7 дней.
+    Кто молчит дольше — на паузе, их раз в две недели проверяет parser.im (donor_intake._recheck_silent)."""
     lp = select(func.max(LgPost.published_at)).where(LgPost.donor_id == LgDonor.id).scalar_subquery()
     rows = (await db.execute(
         select(LgDonor, IgAccount.username, lp.label("lp")).join(IgAccount, IgAccount.id == LgDonor.account_id)
         .join(LgCity, LgCity.id == LgDonor.city_id)
-        .where(LgCity.is_active.is_(True), LgCity.collect_posts.is_(True),
-               (LgDonor.status == "monitored") | ((LgDonor.status == "paused") & LgDonor.status_reason.like("нет постов%"))))).all()
+        .where(LgCity.is_active.is_(True), LgCity.collect_posts.is_(True), LgDonor.status == "monitored"))).all()
     now = datetime.now(timezone.utc)
-    day = now.timetuple().tm_yday
-    out = {}
-    for d, u, last in rows:
-        age = (now - last).days if last else 999
-        if d.status == "paused":
-            take = day % 7 == 0
-        elif age <= FRESH_DAYS:
-            take = True
-        else:
-            take = day % 3 == 0
-        if take:
-            out[u.lower()] = d
-    return out
+    return {u.lower(): d for d, u, last in rows if last and (now - last).days <= FRESH_DAYS}
 
 
 async def _cap_ok(db: AsyncSession, values: dict, what: str) -> bool:
