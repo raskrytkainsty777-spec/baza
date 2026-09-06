@@ -168,12 +168,12 @@ async def _collect_followings(db: AsyncSession, t: LgSearchTask) -> None:
         await _set_stage(db, t, "ready", "пусто")
         return
     per_account = int(inp.get("per_account") or 1500)
-    for chunk in chunks(rows, 10):
-        logins = [u for _, u in chunk]
-        await enqueue_job(db, provider="parserim", kind="followings",
-                          purpose="Подписки доноров: " + ", ".join(logins[:3]) + (f" +{len(logins) - 3}" if len(logins) > 3 else ""),
-                          payload={"logins": logins, "donor_ids": [d for d, _ in chunk], "limit": per_account},
-                          lines=len(logins), search_task_id=t.id)
+    # по одному донору на задание: parser.im отдаёт только логины, без колонки «источник»,
+    # а нам нужно знать, у скольких доноров логин в подписках
+    for did, login in rows:
+        await enqueue_job(db, provider="parserim", kind="followings", purpose=f"Подписки донора: {login}",
+                          payload={"logins": [login], "donor_ids": [did], "limit": per_account},
+                          lines=1, search_task_id=t.id, donor_id=did)
     await log_event(db, "search.followings", f"{t.title}: на сбор подписок ушло {len(rows)} доноров",
                     entity="search_task", entity_id=t.id)
     await db.commit()

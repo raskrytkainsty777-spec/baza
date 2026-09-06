@@ -92,9 +92,11 @@ async def import_followings(db: AsyncSession, job: LgJob, rows: list[dict]) -> i
         return 0
     known = await known_usernames(db)
     hits: dict[str, dict] = {}
+    own = [norm_login(x) for x in ((job.payload or {}).get("logins") or [])]
+    default_src = own[0] if len(own) == 1 else ""
     for r in rows:
         u = norm_login(r.get("login") or r.get("username") or "")
-        src = norm_login(r.get("source") or "")
+        src = norm_login(r.get("source") or "") or default_src
         if not u or u in known:
             continue
         h = hits.setdefault(u, {"sources": set(), "ig_id": r.get("id")})

@@ -61,7 +61,7 @@ async def _pass(db: AsyncSession) -> None:
             return None
         # город спрашиваем у всех постов заводимого донора: без города — чтобы его найти,
         # с городом — чтобы поймать переезд (донор из Москвы, а продаёт Сочи)
-        need_city = p.city_source != "ai" and (d.city_id is None or d.intake_stage in ("ai", "posts_run"))
+        need_city = p.city_source != "ai"
         system = (with_city if need_city else base) + (FORMAT % (", \"city\": null, \"city_confidence\": 0.0" if need_city else ""))
         user = json.dumps({"donor": username, "city": None if need_city else None,
                            "published": p.published_at.isoformat() if p.published_at else None,
