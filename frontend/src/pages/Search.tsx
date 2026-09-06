@@ -63,7 +63,7 @@ export default function Search() {
   const cities = useCities();
   const [kind, setKind] = useState("apify_keyword");
   const [text, setText] = useState("");
-  const [lastDays, setLastDays] = useState<number | string>(30);
+  const [lastDays, setLastDays] = useState<number | string>(7);
   const [minComm, setMinComm] = useState<number | string>(20);
   const [mentionCity, setMentionCity] = useState("");
   const [minDonors, setMinDonors] = useState<number | string>(2);
@@ -86,7 +86,7 @@ export default function Search() {
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
 
   const create = useMutation({
-    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "keyword" ? /[\n,]+/ : /\n+/).map((s) => s.trim()).filter(Boolean), lastpost_days: Number(lastDays) || 30, min_comments: Number(minComm) || 0, city_id: (kind === "mentions" || kind === "followings") && mentionCity ? Number(mentionCity) : null, min_donors: Number(minDonors) || 1, per_account: Number(perAccount) || 1500 } }),
+    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "keyword" ? /[\n,]+/ : /\n+/).map((s) => s.trim()).filter(Boolean), lastpost_days: Number(lastDays) || 7, min_comments: Number(minComm) || 0, city_id: (kind === "mentions" || kind === "followings") && mentionCity ? Number(mentionCity) : null, min_donors: Number(minDonors) || 1, per_account: Number(perAccount) || 1500 } }),
     onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: kind === "apify_keyword" ? "Задача создана — Apify ищет, обычно 1–3 минуты" : kind === "mentions" ? "Задача создана — упоминания собраны из базы, дальше f1 → ИИ" : kind === "followings" ? "Задача создана — подписки собирает parser.im, это небыстро" : "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
   });
   const adopt = useMutation({

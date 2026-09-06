@@ -29,7 +29,7 @@ class TaskCreate(BaseModel):
     kind: str                       # hashtag | keyword | recommendation | apify_keyword
     values: list[str] = []          # теги / слова
     seed_donor_ids: list[int] = []  # для recommendation
-    lastpost_days: int = 30         # apify_keyword: последний пост не старше
+    lastpost_days: int = 7          # apify_keyword: последний пост не старше (замер: лиды дают те, кто постит через день)
     min_comments: int = 20          # apify_keyword: на лучшем из 12 последних постов
     city_id: int | None = None      # mentions / followings: чьи доноры (пусто — все города)
     min_donors: int = 2             # followings: логин должен быть в подписках хотя бы у стольких доноров

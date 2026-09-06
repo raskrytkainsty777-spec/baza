@@ -254,6 +254,8 @@ async def import_apify_posts(db: AsyncSession, job: LgJob, items: list[dict], do
         ).on_conflict_do_nothing(index_elements=["shortcode"]).returning(LgPost.id)
         if (await db.execute(stmt)).scalar():
             inserted += 1
+            if d.status == "paused" and (d.status_reason or "").startswith("нет постов"):
+                d.status, d.status_changed_at, d.status_reason = "monitored", utcnow(), "новый пост — снова на мониторе"
     return inserted
 
 

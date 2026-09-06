@@ -29,6 +29,7 @@ async def run():
                     await _stage_posts(db, values.get("unclassified_collect_posts") == "1")
                 await _stage_ai_done(db)
                 await _stage_comments_done(db, as_int(values, "intake_days", 45))
+                await _pause_silent(db)
                 await heartbeat(db, "donor_intake")
         except Exception:
             log.exception("проход не удался")
@@ -104,6 +105,30 @@ async def _city_from_posts(db: AsyncSession, d: LgDonor) -> None:
                      .values(city_id=top_city, city_source="donor"))
     await log_event(db, "donor.city", f"Донор #{d.id}: город {city.name if city else top_city} по постам "
                     f"({top_n} из {labelled}){(' вместо ' + was.name) if was else ''}", entity="donor", entity_id=d.id)
+
+
+SILENT_REASON = "нет постов"
+
+
+async def _pause_silent(db: AsyncSession) -> None:
+    """Донор на мониторе без постов дольше donor_pause_days города → пауза (замер 06.09.2026:
+    после 14 дней молчания лидов нет вовсе). Обратно на монитор — imports, когда придёт новый пост."""
+    rows = (await db.execute(
+        select(LgDonor, LgCity.name, LgCity.donor_pause_days,
+               select(func.max(LgPost.published_at)).where(LgPost.donor_id == LgDonor.id).scalar_subquery().label("lp"))
+        .join(LgCity, LgCity.id == LgDonor.city_id)
+        .where(LgDonor.status == "monitored", LgCity.donor_pause_days > 0))).all()
+    now = utcnow()
+    n = 0
+    for d, city, days, lp in rows:
+        if lp is None or lp >= now - timedelta(days=int(days)):
+            continue
+        d.status, d.status_changed_at = "paused", now
+        d.status_reason = f"{SILENT_REASON} {int(days)} дн (последний {lp.date().isoformat()})"
+        n += 1
+    if n:
+        await log_event(db, "donor.paused", f"На паузу за молчание: {n} доноров")
+        await db.commit()
 
 
 async def _stage_comments_done(db: AsyncSession, intake_days: int) -> None:
