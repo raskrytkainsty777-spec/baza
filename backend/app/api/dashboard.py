@@ -78,7 +78,10 @@ async def dashboard(
                func.count().filter(LgLead.crm_status == "qual"),
                func.count().filter(LgLead.crm_status == "deal"),
                func.coalesce(func.sum(LgLead.cost_contact + LgLead.cost_handling), 0))
-        .where(LgLead.created_at >= since, LgLead.created_at < until)
+        .join(LgComment, LgComment.id == LgLead.comment_id)
+        # окно — по дате комментария, как и у «комментов»: иначе первый сбор старых постов
+        # даёт «лидов больше, чем комментов за период»
+        .where(LgComment.written_at >= since, LgComment.written_at < until)
         .group_by(LgLead.city_id)
     )).all():
         leads[row[0]] = row[1:]
@@ -122,9 +125,9 @@ async def daily(
     pq = select(cast(LgPost.published_at, Date), func.count()).where(LgPost.published_at >= since)
     cq = select(cast(LgComment.written_at, Date), func.count()).where(
         LgComment.written_at >= since, LgComment.is_donor_reply.is_(False))
-    lq = select(cast(LgLead.created_at, Date), func.count(),
+    lq = select(cast(LgComment.written_at, Date), func.count(),
                 func.count().filter(LgLead.phone.isnot(None)),
-                func.count().filter(LgLead.outbound_status == "sent")).where(LgLead.created_at >= since)
+                func.count().filter(LgLead.outbound_status == "sent"))         .select_from(LgLead).join(LgComment, LgComment.id == LgLead.comment_id).where(LgComment.written_at >= since)
     if city_id:
         pq, cq, lq = (pq.where(LgPost.city_id == city_id), cq.where(LgComment.city_id == city_id),
                       lq.where(LgLead.city_id == city_id))
