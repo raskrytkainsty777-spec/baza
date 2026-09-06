@@ -88,7 +88,7 @@ async def _step(db: AsyncSession, t: LgSearchTask) -> None:
                 t.error = errors[0][:500] if errors else None
                 note = f"собрано {t.collected}"
                 if t.kind == "followings":
-                    need = int((t.input or {}).get("min_donors") or 1)
+                    need = int((t.input or {}).get("min_donors") or 1)   # 1 = все уникальные (решение 06.09)
                     if need > 1:
                         res = await db.execute(update(LgCandidate).where(
                             LgCandidate.task_id == t.id, LgCandidate.state == "collected",
@@ -302,14 +302,17 @@ async def _start_filter(db: AsyncSession, t: LgSearchTask, jobs: list[LgJob]) ->
                                   lines=1, search_task_id=t.id)
                 made += 1
     if not made:
-        # рекомендации, либо поиск без tid — фильтруем по списку логинов
-        logins = (await db.execute(select(LgCandidate.username).where(
-            LgCandidate.task_id == t.id, LgCandidate.state == "collected"))).scalars().all()
-        for chunk in chunks(logins, 10):
+        # список логинов у нас — отдаём parser.im одним заданием файлом по ссылке:
+        # f1 принимает хоть 100 тысяч логинов, потоки тарифа он распределяет сам
+        from ..api.pub import list_url
+        n = (await db.execute(select(func.count()).select_from(LgCandidate).where(
+            LgCandidate.task_id == t.id, LgCandidate.state == "collected",
+            ~LgCandidate.username.like("id:%")))).scalar() or 0
+        if n:
             await enqueue_job(db, provider="parserim", kind="filter",
-                              purpose=f"Фильтр f1: {len(chunk)} логинов · {t.title}",
-                              payload={"logins": chunk, **f1},
-                              lines=len(chunk), search_task_id=t.id)
+                              purpose=f"Фильтр f1: {n} логинов · {t.title}",
+                              payload={"logins_url": list_url(t.id), "count": n, **f1},
+                              lines=10, search_task_id=t.id)
             made += 1
     if not made:
         t.error = "Нечего фильтровать"

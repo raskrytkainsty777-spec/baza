@@ -32,7 +32,7 @@ class TaskCreate(BaseModel):
     lastpost_days: int = 7          # apify_keyword: последний пост не старше (замер: лиды дают те, кто постит через день)
     min_comments: int = 20          # apify_keyword: на лучшем из 12 последних постов
     city_id: int | None = None      # mentions / followings: чьи доноры (пусто — все города)
-    min_donors: int = 2             # followings: логин должен быть в подписках хотя бы у стольких доноров
+    min_donors: int = 1             # followings: логин в подписках хотя бы у стольких доноров; 1 — все уникальные
     per_account: int = 1500         # followings: сколько подписок снимать с одного донора
 
 

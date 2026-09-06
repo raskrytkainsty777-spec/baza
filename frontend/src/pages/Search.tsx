@@ -66,7 +66,7 @@ export default function Search() {
   const [lastDays, setLastDays] = useState<number | string>(7);
   const [minComm, setMinComm] = useState<number | string>(20);
   const [mentionCity, setMentionCity] = useState("");
-  const [minDonors, setMinDonors] = useState<number | string>(2);
+  const [minDonors, setMinDonors] = useState<number | string>(1);
   const [perAccount, setPerAccount] = useState<number | string>(1500);
   const avail = useQuery({ queryKey: ["followings-available", mentionCity], queryFn: () => api(`/search/followings/available${qs({ city_id: mentionCity || "" })}`), enabled: kind === "followings" });
   const [assignCity, setAssignCity] = useState("");
@@ -120,11 +120,11 @@ export default function Search() {
         {kind === "mentions" && <Text size="xs" c="dimmed" mt="xs">Берём @упоминания из подписей постов доноров города и из их описаний профиля: агентства, коллеги, партнёры. Уже известные и отклонённые не попадают. Дальше f1 → ИИ «кто и где».</Text>}
         {kind === "followings" && (
           <Group gap="xs" mt="xs" align="flex-end">
-            <NumberInput w={190} size="xs" label="в подписках хотя бы у" description="доноров, от" min={1} value={minDonors} onChange={setMinDonors} />
+            <NumberInput w={190} size="xs" label="в подписках хотя бы у" description="доноров; 1 — все уникальные" min={1} value={minDonors} onChange={setMinDonors} />
             <NumberInput w={170} size="xs" label="подписок с донора" description="не больше" min={50} step={100} value={perAccount} onChange={setPerAccount} />
             <Text size="xs" c="dimmed">
               {avail.data ? <>доступно <b>{n(avail.data.available)}</b> доноров с лидами, у которых подписки ещё не собирали · уже собрано у {n(avail.data.collected)}</> : "…"}
-              <br />parser.im p1 «подписки», по 10 логинов на задание · результат: логины, которые встречаются у нескольких доноров → f1 → ИИ «кто и где»
+              <br />parser.im p1 «подписки», задание на донора · все уникальные логины одним заданием f1 → ИИ «кто и где»
             </Text>
           </Group>
         )}
