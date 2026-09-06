@@ -232,6 +232,47 @@ async def import_posts(db: AsyncSession, job: LgJob, rows: list[dict], intake_da
     return inserted
 
 
+async def import_post_info(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
+    """p2 act=6: число комментариев по постам → прирост → comments_collect заберёт свежие.
+    Логика та же, что была у счётчиков Apify: delta, дата роста, заморозка по post_freeze_days."""
+    from zoneinfo import ZoneInfo
+    msk = ZoneInfo("Europe/Moscow")
+    ids = (job.payload or {}).get("post_ids") or []
+    if not ids:
+        return 0
+    posts = (await db.execute(
+        select(LgPost, LgCity.post_freeze_days).outerjoin(LgCity, LgCity.id == LgPost.city_id)
+        .where(LgPost.id.in_(ids)))).all()
+    by_sc = {p.shortcode: (p, freeze) for p, freeze in posts}
+    today = datetime.now(msk).date()
+    seen = grown = frozen = 0
+    for r in rows:
+        sc = shortcode_of(unescape_url(r.get("post_url") or ""))
+        hit = by_sc.get(sc or "")
+        if not hit:
+            continue
+        p, freeze = hit
+        new = to_int(r.get("post_comment"))
+        if new is None:
+            continue
+        seen += 1
+        checked_today = bool(p.last_checked_at and p.last_checked_at.astimezone(msk).date() == today)
+        p.comments_count = max(new, 0)
+        p.comments_delta = max(p.comments_count - (p.comments_count_prev or 0), 0)
+        if p.comments_delta > 0:
+            p.last_growth_at, p.zero_growth_days = utcnow(), 0
+            grown += 1
+        elif not checked_today:
+            p.zero_growth_days = (p.zero_growth_days or 0) + 1
+        p.last_checked_at = utcnow()
+        if p.monitor_status == "active" and freeze and p.zero_growth_days >= freeze:
+            p.monitor_status = "frozen"
+            frozen += 1
+    await log_event(db, "posts.counters", f"Инфо о постах (parser.im): {seen} из {len(ids)}, с приростом {grown}, заморожено {frozen}",
+                    entity="job", entity_id=job.id)
+    return seen
+
+
 async def import_apify_posts(db: AsyncSession, job: LgJob, items: list[dict], donors_by_username: dict) -> int:
     """Новые посты из apify/instagram-scraper (resultsType=posts)."""
     inserted = 0

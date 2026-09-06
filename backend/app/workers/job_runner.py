@@ -30,7 +30,7 @@ _remote_queued: set[int] = set()          # парсинг: посты, комм
 _remote_queued_filter: set[int] = set()   # f1 — отдельный тариф, свой пул
 
 # доля строк тарифа на вид работ в первом проходе; остаток во втором проходе — любому по приоритету
-SHARES = {"comments": 0.5, "posts_intake": 0.3, "filter": 0.2, "search": 0.2, "followings": 0.2}
+SHARES = {"comments": 0.4, "post_info": 0.3, "posts_monitor": 0.3, "posts_intake": 0.3, "filter": 0.2, "search": 0.2, "followings": 0.2}
 
 
 async def run():
@@ -63,8 +63,10 @@ async def _create(job: LgJob) -> list[str]:
         return await pim.create_filter(name, source, lastpost_days=int(p.get("lastpost_days") or 30),
                                        followers_from=int(p.get("followers_from") or 0),
                                        followers_to=int(p.get("followers_to") or 0))
-    if job.kind == "posts_intake":
+    if job.kind in ("posts_intake", "posts_monitor"):
         return await pim.create_posts(name, p.get("logins") or [], per_account=int(p.get("limit") or 60))
+    if job.kind == "post_info":
+        return await pim.create_post_info(name, p.get("urls") or [])
     if job.kind == "comments":
         return await pim.create_comments(name, p.get("urls") or [])
     if job.kind == "followings":
@@ -84,6 +86,10 @@ async def _import(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
         return n
     if job.kind == "comments":
         return await imports.import_comments(db, job, rows, as_int(values, "comment_fresh_days_default", 30))
+    if job.kind == "posts_monitor":
+        return await imports.import_posts(db, job, rows, as_int(values, "intake_days", 45))
+    if job.kind == "post_info":
+        return await imports.import_post_info(db, job, rows)
     if job.kind == "followings":
         return await imports.import_followings(db, job, rows)
     return 0
@@ -222,7 +228,7 @@ async def _start_queued(db: AsyncSession) -> None:
             # очередь на стороне parser.im считаем по пулам: застрявший f1 не должен останавливать посты
             if (_remote_queued_filter if job.kind == "filter" else _remote_queued):
                 continue
-            if job.kind == "posts_intake" and not collecting:
+            if job.kind in ("posts_intake", "posts_monitor") and not collecting:
                 continue
             if job.kind == "comments" and not comments_on:
                 continue

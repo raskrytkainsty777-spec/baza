@@ -101,6 +101,9 @@ async def _new_posts(db: AsyncSession, values: dict) -> None:
     donors = await _monitored(db)
     if not donors:
         return
+    if values.get("monitor_provider", "parserim") == "parserim":
+        await _new_posts_parserim(db, values, donors)
+        return
     total_new = 0
     for chunk in chunks(sorted(donors), PROFILES_PER_RUN):
         if not await _cap_ok(db, values, "обход новых постов"):
@@ -125,6 +128,43 @@ async def _new_posts(db: AsyncSession, values: dict) -> None:
     await db.commit()
 
 
+async def _new_posts_parserim(db: AsyncSession, values: dict, donors: dict[str, LgDonor]) -> None:
+    """Верхние посты доноров через parser.im p1: лимит = дней с прошлого обхода × 3 + 3 (закреплённые
+    идут первыми). Результат кладёт job_runner → imports.import_posts, дальше ИИ и сбор комментариев."""
+    last = await get_value(db, "last_run.new_posts.done")
+    days = 1
+    if last:
+        try:
+            days = max(1, int((utcnow() - datetime.fromisoformat(last)).total_seconds() // 86400) + 1)
+        except ValueError:
+            pass
+    limit = min(60, days * 3 + 3)
+    by_login = {u: d for u, d in donors.items()}
+    made = 0
+    for chunk in chunks(sorted(by_login), 10):
+        await enqueue_job(db, provider="parserim", kind="posts_monitor",
+                          purpose=f"Обход постов: {len(chunk)} доноров, по {limit}",
+                          payload={"logins": chunk, "donor_ids": [by_login[u].id for u in chunk], "limit": limit, "monitor": True},
+                          lines=len(chunk))
+        made += 1
+    await set_value(db, "last_run.new_posts.done", utcnow().isoformat())
+    await log_event(db, "posts.synced", f"Обход постов через parser.im: {len(donors)} доноров, {made} заданий, по {limit} постов")
+    await db.commit()
+
+
+async def _counters_parserim(db: AsyncSession, rows: list) -> None:
+    """Инфо о постах через parser.im p2 act=6 пачками по 50 ссылок; импорт считает прирост."""
+    made = 0
+    for chunk in chunks(rows, 50):
+        await enqueue_job(db, provider="parserim", kind="post_info",
+                          purpose=f"Инфо о постах: {len(chunk)}",
+                          payload={"urls": [p.url for p, _ in chunk], "post_ids": [p.id for p, _ in chunk]},
+                          lines=len(chunk))
+        made += 1
+    await log_event(db, "posts.counters", f"Сверка через parser.im: постов {len(rows)}, заданий {made}")
+    await db.commit()
+
+
 async def _counters(db: AsyncSession, values: dict) -> None:
     # какие посты сверяем: с лидами — всегда; без лидов — только 5 дней с публикации.
     # Остальные активные — с обхода долой.
@@ -146,6 +186,9 @@ async def _counters(db: AsyncSession, values: dict) -> None:
         .where(LgDonor.status == "monitored", LgCity.is_active.is_(True), LgCity.collect_comments.is_(True),
                LgPost.monitor_status.in_(["active", "forced"]), LgPost.is_selling.is_(True), keep))).all()
     if not rows:
+        return
+    if values.get("monitor_provider", "parserim") == "parserim":
+        await _counters_parserim(db, rows)
         return
     by_sc = {p.shortcode: (p, freeze) for p, freeze in rows}
     today = datetime.now(MSK).date()
