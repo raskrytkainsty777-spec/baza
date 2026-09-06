@@ -174,7 +174,8 @@ async def create_posts(name: str, logins: list[str], per_account: int = 60) -> l
 async def create_post_info(name: str, post_urls: list[str]) -> list[str]:
     """p2 act=6 — инфо о постах по ссылкам: login, post_url, post_text, post_comment, post_date.
     Проверено 06.09.2026 заданием заказчика «Инфо о посте». Заменяет счётчики Apify."""
-    return await _create(name, {"type": "p2", "act": 6, "links": ",".join(post_urls)})
+    # без spec отдаёт только post_id; с этим набором — source, post_id, post_url, post_text, post_likes, post_comment, post_date
+    return await _create(name, {"type": "p2", "act": 6, "links": ",".join(post_urls), "spec": "1,2,4,5,6,7", "collect_source": 1})
 
 
 async def create_followings(name: str, logins: list[str], per_account: int = 1500) -> list[str]:
