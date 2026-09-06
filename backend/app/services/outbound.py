@@ -36,12 +36,13 @@ async def lead_row(db: AsyncSession, lead: LgLead) -> dict:
         "post_url": p.url if p else None,
         "post_published_at": p.published_at.isoformat() if (p and p.published_at) else None,
         "offer": p.offer if p else None,
+        "offer_text": (p.offer_text or None) if p else None,   # для шаблона: «предложение на {offer_text}»
         "hook": p.hook if p else None,
         "category": p.category if p else None,
         "cta_type": p.cta_type if p else None,
         "code_word": p.code_word if p else None,
         "post_summary": p.ai_summary if p else None,
-        "donor": None,
+        "donor": (await db.get(IgAccount, p.account_id)).username if p else None,
     }
 
 

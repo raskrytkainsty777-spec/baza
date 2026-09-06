@@ -49,6 +49,7 @@ class LgPost(Base):
     # разметка ИИ — один раз на пост
     is_selling: Mapped[bool | None] = mapped_column(Boolean)
     offer: Mapped[str | None] = mapped_column(String(300))
+    offer_text: Mapped[str | None] = mapped_column(String(200))   # «на что привлёкся» — фраза для шаблона сообщения
     hook: Mapped[str | None] = mapped_column(String(80))
     category: Mapped[str | None] = mapped_column(String(40))
     cta_type: Mapped[str | None] = mapped_column(String(60))

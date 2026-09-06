@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
@@ -46,7 +46,9 @@ async def _pass(db: AsyncSession) -> None:
     rows = (await db.execute(
         select(LgPost, LgDonor, IgAccount.username).join(LgDonor, LgDonor.id == LgPost.donor_id)
         .join(IgAccount, IgAccount.id == LgPost.account_id)
-        .where(LgPost.is_selling.is_(None), LgPost.ai_at.is_(None)).order_by(LgPost.id).limit(BATCH))).all()
+        .where(or_(LgPost.is_selling.is_(None) & LgPost.ai_at.is_(None),
+                   LgPost.is_selling.is_(True) & LgPost.offer_text.is_(None)))   # доразметка старых: offer_text появился 06.09
+        .order_by(LgPost.ai_at.is_(None).desc(), LgPost.id).limit(BATCH))).all()
     if not rows:
         return
     values = await settings_all(db)
@@ -83,6 +85,7 @@ async def _pass(db: AsyncSession) -> None:
         cost += getattr(r, "cost", 0.0)
         p.is_selling = bool(r.get("is_selling"))
         p.offer = _cut(r.get("offer"), 300)
+        p.offer_text = _cut(r.get("offer_text"), 200) or ("" if p.is_selling else None)
         p.hook = _cut(r.get("hook"), 80)
         p.category = _cut(r.get("category"), 40)
         cta = r.get("cta_type")
