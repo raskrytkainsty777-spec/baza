@@ -24,6 +24,7 @@ TIMEOUT = 330.0
 ACTOR_SCRAPER = "apify~instagram-scraper"            # посты профилей и по URL постов
 ACTOR_COMMENTS = "apify~instagram-comment-scraper"   # комментарии, новые → старые
 ACTOR_PROFILE = "apify~instagram-profile-scraper"    # профиль + relatedProfiles
+ACTOR_SEARCH = "apify~instagram-search-scraper"      # поиск профилей по слову: bio, подписчики, 12 постов
 
 
 class ApifyError(Exception):
@@ -121,6 +122,12 @@ async def fresh_comments(post_url: str, limit: int) -> list[dict]:
     `limit` ≈ вчерашний прирост × 2 покрывает всё новое. Поля: id, text, timestamp,
     ownerUsername, owner.id, likesCount, replies[]."""
     return await run_sync(ACTOR_COMMENTS, {"directUrls": [post_url], "resultsLimit": limit})
+
+
+async def search_users(terms: list[str], limit: int = 250) -> list[dict]:
+    """Профили по ключевым словам (как поиск в приложении). В каждом — biography, followersCount,
+    latestPosts (до 12, с commentsCount и timestamp), searchTerm. До 250 на слово, ~2.3 $/1000."""
+    return await run_sync(ACTOR_SEARCH, {"search": ", ".join(terms), "searchType": "user", "searchLimit": limit})
 
 
 async def related_profiles(usernames: list[str]) -> list[dict]:

@@ -25,9 +25,11 @@ router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(
 
 
 class TaskCreate(BaseModel):
-    kind: str                       # hashtag | keyword | recommendation
+    kind: str                       # hashtag | keyword | recommendation | apify_keyword
     values: list[str] = []          # теги / слова
     seed_donor_ids: list[int] = []  # для recommendation
+    lastpost_days: int = 30         # apify_keyword: последний пост не старше
+    min_comments: int = 20          # apify_keyword: на лучшем из 12 последних постов
 
 
 class Assign(BaseModel):
@@ -58,7 +60,7 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
     # пока идёт сбор, число авторов живёт в задании parser.im, а не у нас
     live = dict((await db.execute(
         select(LgJob.search_task_id, func.coalesce(func.sum(LgJob.count), 0))
-        .where(LgJob.kind.in_(["search", "apify_recommend"]), LgJob.search_task_id.isnot(None))
+        .where(LgJob.kind.in_(["search", "apify_recommend", "apify_search"]), LgJob.search_task_id.isnot(None))
         .group_by(LgJob.search_task_id))).all())
     items = []
     for t in rows:
@@ -72,8 +74,8 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
 
 @router.post("/tasks", status_code=201)
 async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
-    if body.kind not in ("hashtag", "keyword", "recommendation"):
-        raise HTTPException(400, "kind: hashtag | keyword | recommendation")
+    if body.kind not in ("hashtag", "keyword", "recommendation", "apify_keyword"):
+        raise HTTPException(400, "kind: hashtag | keyword | recommendation | apify_keyword")
     values = [v.strip().lstrip("#") for v in body.values if v.strip()]
     if body.kind == "recommendation":
         if not body.seed_donor_ids:
@@ -85,6 +87,11 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
             raise HTTPException(404, "Сиды не найдены")
         title = "Рекомендации: " + ", ".join(seeds[:4]) + (f" +{len(seeds) - 4}" if len(seeds) > 4 else "")
         payload = {"seeds": seeds, "seed_donor_ids": body.seed_donor_ids}
+    elif body.kind == "apify_keyword":
+        if not values:
+            raise HTTPException(400, "Введите ключевые слова")
+        title = "Ключи Apify: " + ", ".join(values[:3]) + (f" +{len(values) - 3}" if len(values) > 3 else "")
+        payload = {"values": values, "lastpost_days": max(1, body.lastpost_days), "min_comments": max(0, body.min_comments)}
     else:
         if not values:
             raise HTTPException(400, "Введите теги или ключевые слова")
@@ -152,7 +159,7 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
 
 STATE_LABEL = {"collected": "собран", "filtered": "прошёл f1", "classified": "разобран ИИ",
                "distributed": "стал донором", "unclear": "неясно", "rejected": "отклонён"}
-REJECT_LABEL = {"inactive": "неактивен (f1)", "activity": "не та деятельность", "manual": "вручную",
+REJECT_LABEL = {"inactive": "неактивен", "low_comments": "мало комментариев", "activity": "не та деятельность", "manual": "вручную",
                 "private": "закрытый", "not_found": "не найден"}
 
 
@@ -201,10 +208,11 @@ async def task_export(task_id: int, db: AsyncSession = Depends(get_db)):
         .order_by(LgCandidate.state, desc(LgCandidate.city_confidence).nullslast(), LgCandidate.id))).all()
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["логин", "найден через", "имя", "подписчики", "последний пост", "деятельность", "подходит",
+    w.writerow(["логин", "найден через", "имя", "подписчики", "макс. комм.", "последний пост", "деятельность", "подходит",
                 "город", "город по ИИ", "уверенность %", "этап", "причина отказа", "комментарий ИИ", "адрес", "описание"])
     for c, city in rows:
         w.writerow([c.username, c.found_by or "", c.full_name or "", c.followers if c.followers is not None else "",
+                    c.max_comments if c.max_comments is not None else "",
                     c.last_post_at.strftime("%d.%m.%Y") if c.last_post_at else "", c.activity_kind or "",
                     "" if c.activity_ok is None else ("да" if c.activity_ok else "нет"),
                     city or "", c.city_name_raw or "", round(c.city_confidence * 100) if c.city_confidence is not None else "",

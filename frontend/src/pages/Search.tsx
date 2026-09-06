@@ -23,7 +23,7 @@ function Stages({ t }: { t: any }) {
   return (
     <Group gap={6} wrap="wrap">
       {cell(0, "собрано", `${n(t.collected)} авторов`)}<IconArrowRight size={14} color="gray" />
-      {cell(1, "фильтр f1", `${n(t.passed)} прошли · ${n(t.rejected_inactive)} неактивны`)}<IconArrowRight size={14} color="gray" />
+      {cell(1, t.kind === "apify_keyword" ? "фильтр активности" : "фильтр f1", `${n(t.passed)} прошли · ${n(t.rejected_inactive)} ${t.kind === "apify_keyword" ? "отсеяны" : "неактивны"}`)}<IconArrowRight size={14} color="gray" />
       {cell(2, "ИИ: кто и где", `${n(t.confident)} уверенно · ${n(t.unclear)} неясно · ${n(t.rejected_activity)} не те`)}<IconArrowRight size={14} color="gray" />
       {cell(3, "готово", t.stage === "distributed" ? `распределено ${n(t.distributed)}` : "к распределению")}
     </Group>
@@ -61,8 +61,10 @@ function Report({ id, onClose }: { id: number | null; onClose: () => void }) {
 export default function Search() {
   const qc = useQueryClient();
   const cities = useCities();
-  const [kind, setKind] = useState("hashtag");
+  const [kind, setKind] = useState("apify_keyword");
   const [text, setText] = useState("");
+  const [lastDays, setLastDays] = useState<number | string>(30);
+  const [minComm, setMinComm] = useState<number | string>(20);
   const [assignCity, setAssignCity] = useState("");
   const [tid, setTid] = useState("");
   const [tidLines, setTidLines] = useState<number | string>(1);
@@ -80,8 +82,8 @@ export default function Search() {
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
 
   const create = useMutation({
-    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "hashtag" ? /\n+/ : /[\n,]+/).map((s) => s.trim()).filter(Boolean) } }),
-    onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
+    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "keyword" ? /[\n,]+/ : /\n+/).map((s) => s.trim()).filter(Boolean), lastpost_days: Number(lastDays) || 30, min_comments: Number(minComm) || 0 } }),
+    onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: kind === "apify_keyword" ? "Задача создана — Apify ищет, обычно 1–3 минуты" : "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
   });
   const adopt = useMutation({
     mutationFn: () => api("/search/adopt", { method: "POST", body: { tid: tid.trim(), lines: Number(tidLines) || 1 } }),
@@ -103,10 +105,17 @@ export default function Search() {
       <Paper mb="md">
         <Text fw={600} mb="xs">Новая задача</Text>
         <Group align="flex-start" gap="xs">
-          <Select w={230} value={kind} onChange={(v) => setKind(v || "hashtag")} data={[{ value: "hashtag", label: "по тегам · parser.im" }, { value: "keyword", label: "по ключам · parser.im" }]} />
-          <Textarea style={{ flex: 1 }} autosize minRows={3} placeholder={kind === "hashtag" ? "каждый тег с новой строки:\n#риелтормосква\n#новостройкимосквы" : "ключи через запятую или с новой строки:\nриелтор, агент по недвижимости\nновостройки"} value={text} onChange={(e) => setText(e.currentTarget.value)} />
+          <Select w={230} value={kind} onChange={(v) => setKind(v || "hashtag")} data={[{ value: "apify_keyword", label: "по ключам · Apify" }, { value: "hashtag", label: "по тегам · parser.im" }, { value: "keyword", label: "по ключам · parser.im" }]} />
+          <Textarea style={{ flex: 1 }} autosize minRows={3} placeholder={kind === "hashtag" ? "каждый тег с новой строки:\n#риелтормосква\n#новостройкимосквы" : kind === "apify_keyword" ? "каждый ключ с новой строки, как в поиске Instagram:\nриелтор спб\nнедвижимость петербург\nновостройки спб" : "ключи через запятую или с новой строки:\nриелтор, агент по недвижимости\nновостройки"} value={text} onChange={(e) => setText(e.currentTarget.value)} />
           <Button loading={create.isPending} disabled={!text.trim()} onClick={() => create.mutate()}>Запустить</Button>
         </Group>
+        {kind === "apify_keyword" && (
+          <Group gap="xs" mt="xs" align="flex-end">
+            <NumberInput w={170} size="xs" label="последний пост не старше" description="дней" min={1} value={lastDays} onChange={setLastDays} />
+            <NumberInput w={190} size="xs" label="комментариев на лучшем посте" description="из 12 последних, от" min={0} value={minComm} onChange={setMinComm} />
+            <Text size="xs" c="dimmed">Apify ищет профили по слову, как поиск в приложении, до 250 на ключ · ~2,3 $ за 1000 · без parser.im: активные сразу к ИИ «кто и где»</Text>
+          </Group>
+        )}
         <Group gap="xs" mt="sm" align="flex-end">
           <TextInput w={200} size="xs" label="Задание уже создано на сайте parser.im?" placeholder="tid, например 5531333" value={tid} onChange={(e) => setTid(e.currentTarget.value)} />
           <NumberInput w={150} size="xs" label="строк в нём" description="тегов или ключей" min={1} value={tidLines} onChange={setTidLines} />
@@ -120,7 +129,7 @@ export default function Search() {
         {items.map((t) => (
           <Paper key={t.id}>
             <Group justify="space-between" mb="xs">
-              <Group gap="xs"><Text fw={600}>{t.title}</Text><Badge size="xs" variant="light" color={t.kind === "recommendation" ? "cyan" : "grape"}>{t.kind === "recommendation" ? "Apify" : "parser.im"}</Badge><StatusBadge kind="stage" value={t.stage} /><Text size="xs" c="dimmed">{dt(t.created_at)}</Text></Group>
+              <Group gap="xs"><Text fw={600}>{t.title}</Text><Badge size="xs" variant="light" color={t.kind === "recommendation" || t.kind === "apify_keyword" ? "cyan" : "grape"}>{t.kind === "recommendation" || t.kind === "apify_keyword" ? "Apify" : "parser.im"}</Badge><StatusBadge kind="stage" value={t.stage} /><Text size="xs" c="dimmed">{dt(t.created_at)}</Text></Group>
               <Group gap={6}>
                 {t.stage === "ready" && t.confident > 0 && <Button size="xs" loading={distribute.isPending} onClick={() => distribute.mutate(t.id)}>Распределить по городам · {n(t.confident)}</Button>}
                 <Button size="xs" variant="light" leftSection={<IconReportAnalytics size={14} />} onClick={() => setReportId(t.id)}>Итог</Button>

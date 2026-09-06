@@ -57,6 +57,32 @@ async def add_candidates(db: AsyncSession, task: LgSearchTask, entries: list[dic
     return inserted
 
 
+async def add_candidates_scored(db: AsyncSession, task: LgSearchTask, entries: list[dict]) -> int:
+    """Кандидаты, у которых данные f1 уже есть (поиск Apify): кладём сразу с состоянием —
+    filtered (прошёл фильтр активности) или rejected с причиной. Дубли — как в add_candidates."""
+    known = await known_usernames(db)
+    seen: dict[str, dict] = {}
+    for e in entries:
+        u = norm_login(e.get("username") or "")
+        if u and u not in known and u not in seen:
+            seen[u] = e
+    inserted = 0
+    for batch in chunks(seen.items(), 500):
+        stmt = insert(LgCandidate).values([{
+            "task_id": task.id, "username": u, "ig_id": e.get("ig_id") or None,
+            "found_by": (e.get("found_by") or "")[:200] or None,
+            "full_name": (e.get("full_name") or "")[:300] or None, "bio": e.get("bio") or None,
+            "address": (e.get("address") or "")[:300] or None,
+            "followers": e.get("followers"), "posts_count": e.get("posts_count"),
+            "last_post_at": e.get("last_post_at"), "max_comments": e.get("max_comments"),
+            "state": e.get("state") or "filtered", "reject_reason": e.get("reject_reason"),
+        } for u, e in batch]).on_conflict_do_nothing(index_elements=["task_id", "username"]).returning(LgCandidate.id)
+        inserted += len((await db.execute(stmt)).scalars().all())
+    task.collected = (await db.execute(
+        select(func.count()).select_from(LgCandidate).where(LgCandidate.task_id == task.id))).scalar() or 0
+    return inserted
+
+
 async def import_search(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
     task = await db.get(LgSearchTask, job.search_task_id) if job.search_task_id else None
     if not task:

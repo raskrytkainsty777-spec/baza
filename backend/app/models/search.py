@@ -19,7 +19,7 @@ class LgSearchTask(Base):
     __tablename__ = "lg_search_tasks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(16))          # hashtag | keyword | recommendation
+    kind: Mapped[str] = mapped_column(String(16))          # hashtag | keyword | recommendation | apify_keyword
     # теги/ключи списком или список account_id сидов
     input: Mapped[dict] = mapped_column(JSONB)
     title: Mapped[str] = mapped_column(String(300))        # что показываем в карточке
@@ -59,6 +59,7 @@ class LgCandidate(Base):
     followers: Mapped[int | None] = mapped_column(Integer)
     posts_count: Mapped[int | None] = mapped_column(Integer)
     last_post_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    max_comments: Mapped[int | None] = mapped_column(Integer)   # лучший из последних постов (поиск Apify)
 
     # ИИ «кто и где»
     activity_kind: Mapped[str | None] = mapped_column(String(30))

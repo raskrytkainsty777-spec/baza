@@ -8,6 +8,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -60,7 +61,7 @@ async def _set_stage(db: AsyncSession, t: LgSearchTask, stage: str, note: str = 
 async def _step(db: AsyncSession, t: LgSearchTask) -> None:
     jobs = (await db.execute(select(LgJob).where(LgJob.search_task_id == t.id))).scalars().all()
     if t.stage == "collecting":
-        sjobs = [j for j in jobs if j.kind in ("search", "apify_recommend")]
+        sjobs = [j for j in jobs if j.kind in ("search", "apify_recommend", "apify_search")]
         if not sjobs:
             await _start_collect(db, t)
         elif _finished(sjobs):
@@ -70,6 +71,17 @@ async def _step(db: AsyncSession, t: LgSearchTask) -> None:
             if t.collected == 0:
                 t.error = "Ничего не найдено" + (f": {errors[0]}" if errors else "")
                 await _set_stage(db, t, "ready", "пусто")
+            elif t.kind == "apify_keyword":
+                # данные f1 уже пришли из поиска и фильтр применён при сборе — сразу к ИИ
+                t.error = errors[0][:500] if errors else None
+
+                def cnt(*w):
+                    return select(func.count()).select_from(LgCandidate).where(LgCandidate.task_id == t.id, *w)
+                t.passed = (await db.execute(cnt(LgCandidate.state == "filtered"))).scalar() or 0
+                t.rejected_inactive = (await db.execute(cnt(
+                    LgCandidate.state == "rejected",
+                    LgCandidate.reject_reason.in_(("inactive", "low_comments", "private"))))).scalar() or 0
+                await _set_stage(db, t, "classifying", f"собрано {t.collected}, активных {t.passed}")
             else:
                 t.error = errors[0][:500] if errors else None
                 await _set_stage(db, t, "filtering", f"собрано {t.collected}")
@@ -96,6 +108,9 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
                               payload={"kind": t.kind, "values": chunk}, lines=len(chunk), search_task_id=t.id)
         await db.commit()
         return
+    if t.kind == "apify_keyword":
+        await _collect_apify_keywords(db, t)
+        return
     # рекомендации — Apify, сразу
     seeds = [s for s in (inp.get("seeds") or []) if s]
     job = await enqueue_job(db, provider="apify", kind="apify_recommend", state="running",
@@ -115,6 +130,60 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
     except Exception as e:
         job.state, job.error, job.finished_at = "error", str(e)[:500], utcnow()
         await log_event(db, "job.error", f"Рекомендации Apify: {e}", entity="job", entity_id=job.id, level="error")
+    await db.commit()
+
+
+async def _collect_apify_keywords(db: AsyncSession, t: LgSearchTask) -> None:
+    """Поиск профилей по словам через Apify: в ответе уже есть описание, подписчики и 12 последних
+    постов с комментариями, так что f1 не нужен — фильтр активности применяем здесь же."""
+    inp = t.input or {}
+    words = [v for v in (inp.get("values") or []) if v]
+    lastpost_days = int(inp.get("lastpost_days") or F1_LASTPOST_DAYS)
+    min_comments = int(inp.get("min_comments") or 0)
+    job = await enqueue_job(db, provider="apify", kind="apify_search", state="running",
+                            purpose=f"Поиск Apify: {len(words)} ключей", payload={"values": words}, search_task_id=t.id)
+    await db.commit()
+    try:
+        items = await apify.search_users(words)
+        since = datetime.now(timezone.utc) - timedelta(days=lastpost_days)
+        entries, passed = [], 0
+        for it in items:
+            u = it.get("username")
+            if not u:
+                continue
+            posts = it.get("latestPosts") or []
+            stamps = []
+            for p in posts:
+                ts = p.get("timestamp")
+                if ts:
+                    try:
+                        stamps.append(datetime.fromisoformat(str(ts).replace("Z", "+00:00")))
+                    except ValueError:
+                        pass
+            last = max(stamps) if stamps else None
+            best = max((int(p.get("commentsCount") or 0) for p in posts), default=0)
+            e = {"username": u, "ig_id": it.get("id"), "found_by": ("ключ: " + str(it.get("searchTerm") or ""))[:200],
+                 "full_name": it.get("fullName"), "bio": it.get("biography"),
+                 "address": it.get("businessAddress") or it.get("city") or None,
+                 "followers": it.get("followersCount"), "posts_count": it.get("postsCount"),
+                 "last_post_at": last, "max_comments": best}
+            if it.get("private"):
+                e.update(state="rejected", reject_reason="private")
+            elif not last or last < since:
+                e.update(state="rejected", reject_reason="inactive")
+            elif best < min_comments:
+                e.update(state="rejected", reject_reason="low_comments")
+            else:
+                e["state"] = "filtered"
+                passed += 1
+            entries.append(e)
+        n = await imports.add_candidates_scored(db, t, entries)
+        job.state, job.count, job.rows_imported, job.finished_at, job.imported_at = "done", len(items), n, utcnow(), utcnow()
+        await log_event(db, "search.apify", f"{t.title}: найдено {len(items)}, новых {n}, активных {passed}",
+                        entity="search_task", entity_id=t.id)
+    except Exception as e:
+        job.state, job.error, job.finished_at = "error", str(e)[:500], utcnow()
+        await log_event(db, "job.error", f"Поиск Apify: {e}", entity="job", entity_id=job.id, level="error")
     await db.commit()
 
 
