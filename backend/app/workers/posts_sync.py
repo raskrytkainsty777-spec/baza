@@ -78,7 +78,8 @@ async def _monitored(db: AsyncSession) -> dict[str, LgDonor]:
 
 
 async def _cap_ok(db: AsyncSession, values: dict, what: str) -> bool:
-    cap = as_float(values, "apify_daily_cap_usd", 10.0)
+    # потолок читаем заново перед каждой пачкой: его меняют руками посреди обхода
+    cap = as_float(await settings_all(db), "apify_daily_cap_usd", 10.0)
     spent = await apify_spent_today(db)
     if spent >= cap:
         await log_event(db, "apify.cap", f"Apify: потолок ${cap:.2f} достигнут (${spent:.2f}) — {what} пропущен", level="warn")
