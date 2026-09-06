@@ -69,17 +69,19 @@ async def run():
         await asyncio.sleep(POLL)
 
 
-FRESH_DAYS = 7      # правило заказчика 06.09.2026: постит через день → лиды; молчит неделю — почти никогда
+FRESH_DAYS = 7        # донор: пост за 7 дней, иначе пауза
+POST_FRESH_DAYS = 5   # пост без лидов сверяем 5 дней; с лидами — всегда (правило заказчика 06.09.2026)
 
 
 async def _monitored(db: AsyncSession) -> dict[str, LgDonor]:
-    """Кого обходим на новые посты через Apify: только доноров на мониторе с постом за 7 дней.
-    Кто молчит дольше — на паузе, их раз в две недели проверяет parser.im (donor_intake._recheck_silent)."""
+    """Кого обходим на новые посты: доноры на мониторе, которые уже дали хотя бы один лид,
+    с постом за 7 дней. Кто молчит дольше — на паузе, их раз в две недели проверяет parser.im."""
     lp = select(func.max(LgPost.published_at)).where(LgPost.donor_id == LgDonor.id).scalar_subquery()
+    has_lead = select(LgLead.id).join(LgPost, LgPost.id == LgLead.post_id).where(LgPost.donor_id == LgDonor.id).exists()
     rows = (await db.execute(
         select(LgDonor, IgAccount.username, lp.label("lp")).join(IgAccount, IgAccount.id == LgDonor.account_id)
         .join(LgCity, LgCity.id == LgDonor.city_id)
-        .where(LgCity.is_active.is_(True), LgCity.collect_posts.is_(True), LgDonor.status == "monitored"))).all()
+        .where(LgCity.is_active.is_(True), LgCity.collect_posts.is_(True), LgDonor.status == "monitored", has_lead))).all()
     now = datetime.now(timezone.utc)
     return {u.lower(): d for d, u, last in rows if last and (now - last).days <= FRESH_DAYS}
 
@@ -124,11 +126,11 @@ async def _new_posts(db: AsyncSession, values: dict) -> None:
 
 
 async def _counters(db: AsyncSession, values: dict) -> None:
-    # какие посты сверяем: пост с лидами — всегда; свежий (7 дней) — даём разогнаться;
-    # с приростом за последние 7 дней — трафик есть. Остальные активные — с обхода долой.
+    # какие посты сверяем: с лидами — всегда; без лидов — только 5 дней с публикации.
+    # Остальные активные — с обхода долой.
     has_lead = select(LgLead.id).where(LgLead.post_id == LgPost.id).exists()
-    fresh = utcnow() - timedelta(days=FRESH_DAYS)
-    keep = or_(LgPost.monitor_status == "forced", has_lead, LgPost.published_at >= fresh, LgPost.last_growth_at >= fresh)
+    fresh = utcnow() - timedelta(days=POST_FRESH_DAYS)
+    keep = or_(LgPost.monitor_status == "forced", has_lead, LgPost.published_at >= fresh)
     stale = (await db.execute(
         select(LgPost).join(LgDonor, LgDonor.id == LgPost.donor_id)
         .where(LgPost.monitor_status == "active", LgPost.is_selling.is_(True), ~keep,
@@ -136,7 +138,7 @@ async def _counters(db: AsyncSession, values: dict) -> None:
     for p in stale:
         p.monitor_status = "frozen"
     if stale:
-        await log_event(db, "posts.frozen", f"Сняты с обхода: {len(stale)} постов старше {FRESH_DAYS} дн без лидов и прироста")
+        await log_event(db, "posts.frozen", f"Сняты с обхода: {len(stale)} постов старше {POST_FRESH_DAYS} дн без лидов")
         await db.commit()
     rows = (await db.execute(
         select(LgPost, LgCity.post_freeze_days).join(LgDonor, LgDonor.id == LgPost.donor_id)
