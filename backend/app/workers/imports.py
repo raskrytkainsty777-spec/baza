@@ -83,6 +83,41 @@ async def add_candidates_scored(db: AsyncSession, task: LgSearchTask, entries: l
     return inserted
 
 
+async def import_followings(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
+    """Подписки доноров (p1 act=8): один логин может быть в подписках у нескольких доноров —
+    считаем, у скольких (sources_count); порог применит discovery, когда все задания задачи
+    закончатся. Доноров из задания помечаем: подписки собраны."""
+    task = await db.get(LgSearchTask, job.search_task_id) if job.search_task_id else None
+    if not task:
+        return 0
+    known = await known_usernames(db)
+    hits: dict[str, dict] = {}
+    for r in rows:
+        u = norm_login(r.get("login") or r.get("username") or "")
+        src = norm_login(r.get("source") or "")
+        if not u or u in known:
+            continue
+        h = hits.setdefault(u, {"sources": set(), "ig_id": r.get("id")})
+        h["sources"].add(src or "?")
+    inserted = 0
+    for batch in chunks(hits.items(), 500):
+        stmt = insert(LgCandidate).values([{
+            "task_id": task.id, "username": u, "ig_id": h["ig_id"] or None,
+            "found_by": ("подписки: @" + ", @".join(sorted(h["sources"])[:3]))[:200], "state": "collected",
+            "sources_count": len(h["sources"]),
+        } for u, h in batch])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["task_id", "username"],
+            set_={"sources_count": LgCandidate.sources_count + stmt.excluded.sources_count})
+        inserted += len((await db.execute(stmt.returning(LgCandidate.id))).scalars().all())
+    ids = (job.payload or {}).get("donor_ids") or []
+    if ids:
+        await db.execute(update(LgDonor).where(LgDonor.id.in_(ids)).values(followings_collected_at=utcnow()))
+    task.collected = (await db.execute(
+        select(func.count()).select_from(LgCandidate).where(LgCandidate.task_id == task.id))).scalar() or 0
+    return inserted
+
+
 async def import_search(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
     task = await db.get(LgSearchTask, job.search_task_id) if job.search_task_id else None
     if not task:

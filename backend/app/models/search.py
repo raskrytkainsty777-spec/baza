@@ -60,6 +60,7 @@ class LgCandidate(Base):
     posts_count: Mapped[int | None] = mapped_column(Integer)
     last_post_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     max_comments: Mapped[int | None] = mapped_column(Integer)   # лучший из последних постов (поиск Apify)
+    sources_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # у скольких доноров в подписках
 
     # ИИ «кто и где»
     activity_kind: Mapped[str | None] = mapped_column(String(30))

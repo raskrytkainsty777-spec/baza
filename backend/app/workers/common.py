@@ -16,7 +16,7 @@ from ..api.settings import DEFAULTS, get_all
 from ..models import LgCity, LgEvent, LgJob, LgSetting
 
 # приоритет строк parser.im: меньше — раньше
-PRIORITY = {"comments_growth": 5, "comments": 10, "posts_intake": 20, "filter": 30, "search": 40}
+PRIORITY = {"comments_growth": 5, "comments": 10, "posts_intake": 20, "filter": 30, "followings": 35, "search": 40}
 
 _SC = re.compile(r"/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)")
 

@@ -171,6 +171,12 @@ async def create_posts(name: str, logins: list[str], per_account: int = 60) -> l
                                 "collect_source": 1, "spec": "1,2,4,5,6,7", "limit2": per_account})
 
 
+async def create_followings(name: str, logins: list[str], per_account: int = 1500) -> list[str]:
+    """p1 act=8 — подписки аккаунтов (на кого подписан). `limit2` — на аккаунт."""
+    return await _create(name, {"type": "p1", "act": 8, "links": ",".join(logins), "spec": "1,2",
+                                "collect_source": 1, "limit2": per_account})
+
+
 async def create_comments(name: str, post_urls: list[str]) -> list[str]:
     """p2 act=3 — комментарии по ссылкам на посты. Только web=1, без dop и фильтров."""
     return await _create(name, {"type": "p2", "act": 3, "links": ",".join(post_urls),

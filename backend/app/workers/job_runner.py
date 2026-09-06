@@ -29,7 +29,7 @@ REMOTE_KEEP_DAYS = 3
 _remote_queued: set[int] = set()
 
 # доля строк тарифа на вид работ в первом проходе; остаток во втором проходе — любому по приоритету
-SHARES = {"comments": 0.5, "posts_intake": 0.3, "filter": 0.2, "search": 0.2}
+SHARES = {"comments": 0.5, "posts_intake": 0.3, "filter": 0.2, "search": 0.2, "followings": 0.2}
 
 
 async def run():
@@ -66,6 +66,8 @@ async def _create(job: LgJob) -> list[str]:
         return await pim.create_posts(name, p.get("logins") or [], per_account=int(p.get("limit") or 60))
     if job.kind == "comments":
         return await pim.create_comments(name, p.get("urls") or [])
+    if job.kind == "followings":
+        return await pim.create_followings(name, p.get("logins") or [], per_account=int(p.get("limit") or 1500))
     raise pim.ParserImError(f"неизвестный тип задания {job.kind}")
 
 
@@ -81,6 +83,8 @@ async def _import(db: AsyncSession, job: LgJob, rows: list[dict]) -> int:
         return n
     if job.kind == "comments":
         return await imports.import_comments(db, job, rows, as_int(values, "comment_fresh_days_default", 30))
+    if job.kind == "followings":
+        return await imports.import_followings(db, job, rows)
     return 0
 
 

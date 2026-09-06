@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
-from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgJob, LgPost, LgReject, LgSearchTask
+from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgJob, LgLead, LgPost, LgReject, LgSearchTask
 from ..services.ai.client import AiError, chat_json, prompt
 from ..services.apify import client as apify
 from ..services.donors import distribute_task
@@ -62,7 +62,7 @@ async def _set_stage(db: AsyncSession, t: LgSearchTask, stage: str, note: str = 
 async def _step(db: AsyncSession, t: LgSearchTask) -> None:
     jobs = (await db.execute(select(LgJob).where(LgJob.search_task_id == t.id))).scalars().all()
     if t.stage == "collecting":
-        sjobs = [j for j in jobs if j.kind in ("search", "apify_recommend", "apify_search", "mentions")]
+        sjobs = [j for j in jobs if j.kind in ("search", "apify_recommend", "apify_search", "mentions", "followings")]
         if not sjobs:
             await _start_collect(db, t)
         elif _finished(sjobs):
@@ -85,7 +85,15 @@ async def _step(db: AsyncSession, t: LgSearchTask) -> None:
                 await _set_stage(db, t, "classifying", f"собрано {t.collected}, активных {t.passed}")
             else:
                 t.error = errors[0][:500] if errors else None
-                await _set_stage(db, t, "filtering", f"собрано {t.collected}")
+                note = f"собрано {t.collected}"
+                if t.kind == "followings":
+                    need = int((t.input or {}).get("min_donors") or 1)
+                    if need > 1:
+                        res = await db.execute(update(LgCandidate).where(
+                            LgCandidate.task_id == t.id, LgCandidate.state == "collected",
+                            LgCandidate.sources_count < need).values(state="rejected", reject_reason="few_sources"))
+                        note += f", в подписках меньше чем у {need} доноров: {res.rowcount}"
+                await _set_stage(db, t, "filtering", note)
     elif t.stage == "filtering":
         fjobs = [j for j in jobs if j.kind == "filter"]
         if not fjobs:
@@ -115,6 +123,9 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
     if t.kind == "mentions":
         await _collect_mentions(db, t)
         return
+    if t.kind == "followings":
+        await _collect_followings(db, t)
+        return
     # рекомендации — Apify, сразу
     seeds = [s for s in (inp.get("seeds") or []) if s]
     job = await enqueue_job(db, provider="apify", kind="apify_recommend", state="running",
@@ -134,6 +145,37 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
     except Exception as e:
         job.state, job.error, job.finished_at = "error", str(e)[:500], utcnow()
         await log_event(db, "job.error", f"Рекомендации Apify: {e}", entity="job", entity_id=job.id, level="error")
+    await db.commit()
+
+
+def followings_donors_stmt(city_id: int | None):
+    """Доноры, у которых есть хоть один лид и подписки ещё не собирали."""
+    has_lead = select(LgLead.id).join(LgPost, LgPost.id == LgLead.post_id).where(LgPost.donor_id == LgDonor.id).exists()
+    q = select(LgDonor.id, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id) \
+        .where(LgDonor.followings_collected_at.is_(None), has_lead)
+    if city_id:
+        q = q.where(LgDonor.city_id == int(city_id))
+    return q.order_by(LgDonor.id)
+
+
+async def _collect_followings(db: AsyncSession, t: LgSearchTask) -> None:
+    """Подписки доноров с лидами → parser.im p1 act=8 пачками по 10 логинов. Сбор идёт в job_runner,
+    результат складывает imports.import_followings; порог «у скольких доноров» — при закрытии сбора."""
+    inp = t.input or {}
+    rows = (await db.execute(followings_donors_stmt(inp.get("city_id")))).all()
+    if not rows:
+        t.error = "Нет доноров с лидами, у которых подписки ещё не собирали"
+        await _set_stage(db, t, "ready", "пусто")
+        return
+    per_account = int(inp.get("per_account") or 1500)
+    for chunk in chunks(rows, 10):
+        logins = [u for _, u in chunk]
+        await enqueue_job(db, provider="parserim", kind="followings",
+                          purpose="Подписки доноров: " + ", ".join(logins[:3]) + (f" +{len(logins) - 3}" if len(logins) > 3 else ""),
+                          payload={"logins": logins, "donor_ids": [d for d, _ in chunk], "limit": per_account},
+                          lines=len(logins), search_task_id=t.id)
+    await log_event(db, "search.followings", f"{t.title}: на сбор подписок ушло {len(rows)} доноров",
+                    entity="search_task", entity_id=t.id)
     await db.commit()
 
 

@@ -78,6 +78,7 @@ class LgDonor(Base):
 
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    followings_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # досбор подписок сделан
     status_reason: Mapped[str | None] = mapped_column(String(300))
 
 

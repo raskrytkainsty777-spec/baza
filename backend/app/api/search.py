@@ -18,6 +18,7 @@ from ..db import get_db
 from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgEvent, LgJob, LgReject, LgSearchTask
 from ..services.donors import CONFIDENT, distribute_task, make_donor
 from ..services.parserim import client as pim
+from ..workers.discovery import followings_donors_stmt
 from .deps import require_token
 
 router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_token)])
@@ -30,7 +31,9 @@ class TaskCreate(BaseModel):
     seed_donor_ids: list[int] = []  # для recommendation
     lastpost_days: int = 30         # apify_keyword: последний пост не старше
     min_comments: int = 20          # apify_keyword: на лучшем из 12 последних постов
-    city_id: int | None = None      # mentions: чьи доноры (пусто — все города)
+    city_id: int | None = None      # mentions / followings: чьи доноры (пусто — все города)
+    min_donors: int = 2             # followings: логин должен быть в подписках хотя бы у стольких доноров
+    per_account: int = 1500         # followings: сколько подписок снимать с одного донора
 
 
 class Assign(BaseModel):
@@ -61,7 +64,7 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
     # пока идёт сбор, число авторов живёт в задании parser.im, а не у нас
     live = dict((await db.execute(
         select(LgJob.search_task_id, func.coalesce(func.sum(LgJob.count), 0))
-        .where(LgJob.kind.in_(["search", "apify_recommend", "apify_search", "mentions"]), LgJob.search_task_id.isnot(None))
+        .where(LgJob.kind.in_(["search", "apify_recommend", "apify_search", "mentions", "followings"]), LgJob.search_task_id.isnot(None))
         .group_by(LgJob.search_task_id))).all())
     items = []
     for t in rows:
@@ -75,8 +78,8 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
 
 @router.post("/tasks", status_code=201)
 async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
-    if body.kind not in ("hashtag", "keyword", "recommendation", "apify_keyword", "mentions"):
-        raise HTTPException(400, "kind: hashtag | keyword | recommendation | apify_keyword | mentions")
+    if body.kind not in ("hashtag", "keyword", "recommendation", "apify_keyword", "mentions", "followings"):
+        raise HTTPException(400, "kind: hashtag | keyword | recommendation | apify_keyword | mentions | followings")
     values = [v.strip().lstrip("#") for v in body.values if v.strip()]
     if body.kind == "recommendation":
         if not body.seed_donor_ids:
@@ -88,12 +91,16 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
             raise HTTPException(404, "Сиды не найдены")
         title = "Рекомендации: " + ", ".join(seeds[:4]) + (f" +{len(seeds) - 4}" if len(seeds) > 4 else "")
         payload = {"seeds": seeds, "seed_donor_ids": body.seed_donor_ids}
-    elif body.kind == "mentions":
+    elif body.kind in ("mentions", "followings"):
         city = await db.get(LgCity, body.city_id) if body.city_id else None
         if body.city_id and not city:
             raise HTTPException(404, "Город не найден")
-        title = "Упоминания у доноров: " + (city.name if city else "все города")
-        payload = {"city_id": body.city_id}
+        where = city.name if city else "все города"
+        if body.kind == "mentions":
+            title, payload = "Упоминания у доноров: " + where, {"city_id": body.city_id}
+        else:
+            title = f"Подписки доноров с лидами: {where} · от {max(1, body.min_donors)} доноров"
+            payload = {"city_id": body.city_id, "min_donors": max(1, body.min_donors), "per_account": max(50, body.per_account)}
     elif body.kind == "apify_keyword":
         if not values:
             raise HTTPException(400, "Введите ключевые слова")
@@ -151,6 +158,17 @@ async def adopt(body: Adopt, db: AsyncSession = Depends(get_db)):
     return _task_dto(t)
 
 
+@router.get("/followings/available")
+async def followings_available(city_id: int | None = None, db: AsyncSession = Depends(get_db)):
+    """Сколько доноров с лидами ещё не отдавали подписки — объём будущей задачи."""
+    free = (await db.execute(select(func.count()).select_from(followings_donors_stmt(city_id).subquery()))).scalar() or 0
+    done_q = select(func.count()).select_from(LgDonor).where(LgDonor.followings_collected_at.isnot(None))
+    if city_id:
+        done_q = done_q.where(LgDonor.city_id == city_id)
+    done = (await db.execute(done_q)).scalar() or 0
+    return {"available": free, "collected": done}
+
+
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
     t = await db.get(LgSearchTask, task_id)
@@ -166,7 +184,7 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
 
 STATE_LABEL = {"collected": "собран", "filtered": "прошёл f1", "classified": "разобран ИИ",
                "distributed": "стал донором", "unclear": "неясно", "rejected": "отклонён"}
-REJECT_LABEL = {"inactive": "неактивен", "low_comments": "мало комментариев", "activity": "не та деятельность", "manual": "вручную",
+REJECT_LABEL = {"inactive": "неактивен", "low_comments": "мало комментариев", "few_sources": "мало доноров подписаны", "activity": "не та деятельность", "manual": "вручную",
                 "private": "закрытый", "not_found": "не найден"}
 
 
