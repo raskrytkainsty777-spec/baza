@@ -30,6 +30,7 @@ class TaskCreate(BaseModel):
     seed_donor_ids: list[int] = []  # для recommendation
     lastpost_days: int = 30         # apify_keyword: последний пост не старше
     min_comments: int = 20          # apify_keyword: на лучшем из 12 последних постов
+    city_id: int | None = None      # mentions: чьи доноры (пусто — все города)
 
 
 class Assign(BaseModel):
@@ -60,7 +61,7 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
     # пока идёт сбор, число авторов живёт в задании parser.im, а не у нас
     live = dict((await db.execute(
         select(LgJob.search_task_id, func.coalesce(func.sum(LgJob.count), 0))
-        .where(LgJob.kind.in_(["search", "apify_recommend", "apify_search"]), LgJob.search_task_id.isnot(None))
+        .where(LgJob.kind.in_(["search", "apify_recommend", "apify_search", "mentions"]), LgJob.search_task_id.isnot(None))
         .group_by(LgJob.search_task_id))).all())
     items = []
     for t in rows:
@@ -74,8 +75,8 @@ async def list_tasks(limit: int = Query(50, le=200), db: AsyncSession = Depends(
 
 @router.post("/tasks", status_code=201)
 async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
-    if body.kind not in ("hashtag", "keyword", "recommendation", "apify_keyword"):
-        raise HTTPException(400, "kind: hashtag | keyword | recommendation | apify_keyword")
+    if body.kind not in ("hashtag", "keyword", "recommendation", "apify_keyword", "mentions"):
+        raise HTTPException(400, "kind: hashtag | keyword | recommendation | apify_keyword | mentions")
     values = [v.strip().lstrip("#") for v in body.values if v.strip()]
     if body.kind == "recommendation":
         if not body.seed_donor_ids:
@@ -87,6 +88,12 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
             raise HTTPException(404, "Сиды не найдены")
         title = "Рекомендации: " + ", ".join(seeds[:4]) + (f" +{len(seeds) - 4}" if len(seeds) > 4 else "")
         payload = {"seeds": seeds, "seed_donor_ids": body.seed_donor_ids}
+    elif body.kind == "mentions":
+        city = await db.get(LgCity, body.city_id) if body.city_id else None
+        if body.city_id and not city:
+            raise HTTPException(404, "Город не найден")
+        title = "Упоминания у доноров: " + (city.name if city else "все города")
+        payload = {"city_id": body.city_id}
     elif body.kind == "apify_keyword":
         if not values:
             raise HTTPException(400, "Введите ключевые слова")

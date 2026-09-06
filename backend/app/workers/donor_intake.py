@@ -69,11 +69,33 @@ async def _stage_ai_done(db: AsyncSession) -> None:
         total = (await db.execute(select(func.count()).select_from(LgPost).where(LgPost.donor_id == d.id))).scalar() or 0
         selling = (await db.execute(select(func.count()).select_from(LgPost).where(
             LgPost.donor_id == d.id, LgPost.is_selling.is_(True)))).scalar() or 0
+        if d.city_id is None and d.status == "unclassified":
+            await _city_from_posts(db, d)
         d.intake_stage = "comments"
         await log_event(db, "donor.intake", f"Донор #{d.id}: постов {total}, продающих {selling} — к первому сбору",
                         entity="donor", entity_id=d.id)
     if donors:
         await db.commit()
+
+
+async def _city_from_posts(db: AsyncSession, d: LgDonor) -> None:
+    """Неразобранный донор: если у большинства его продающих постов один город (ИИ ставит город
+    каждому посту), донор переезжает в этот город и дальше живёт как обычный «новый»."""
+    rows = (await db.execute(
+        select(LgPost.city_id, func.count()).where(LgPost.donor_id == d.id, LgPost.is_selling.is_(True),
+                                                   LgPost.city_id.isnot(None))
+        .group_by(LgPost.city_id).order_by(func.count().desc()))).all()
+    if not rows:
+        return
+    top_city, top_n = rows[0]
+    labelled = sum(n for _, n in rows)
+    if top_n < 2 or top_n / labelled < 0.6:
+        return
+    city = await db.get(LgCity, top_city)
+    d.city_id, d.status, d.status_changed_at = top_city, "new", utcnow()
+    d.status_reason = f"город по постам: {top_n} из {labelled} продающих"
+    await log_event(db, "donor.city", f"Донор #{d.id}: город {city.name if city else top_city} по постам ({top_n} из {labelled})",
+                    entity="donor", entity_id=d.id)
 
 
 async def _stage_comments_done(db: AsyncSession, intake_days: int) -> None:

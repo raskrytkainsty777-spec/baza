@@ -50,7 +50,7 @@ function Report({ id, onClose }: { id: number | null; onClose: () => void }) {
               {!!d.reject_reasons.length && <><Text fw={600} size="sm" mt="sm" mb={4}>Почему отклонены</Text>{mini(d.reject_reasons, ["причина", "шт."], (x) => [x.label, n(x.count)])}</>}</div>
             <div><Text fw={600} size="sm" mb={4}>По городам</Text>{mini(d.cities, ["город", "доноров", "ждут распределения", "неясно"], (x) => [x.city, n(x.distributed), n(x.waiting), n(x.unclear)])}</div>
           </SimpleGrid>
-          <div><Text fw={600} size="sm" mb={4}>{d.task.kind === "recommendation" ? "Что дал каждый сид" : "Что дал каждый тег / ключ"}</Text>
+          <div><Text fw={600} size="sm" mb={4}>{d.task.kind === "recommendation" ? "Что дал каждый сид" : d.task.kind === "mentions" ? "Кто упомянул" : "Что дал каждый тег / ключ"}</Text>
             {mini(d.sources, ["источник", "собрано", "прошли f1", "стали донорами"], (x) => [x.source, n(x.collected), n(x.passed), n(x.distributed)])}</div>
         </Stack>
       )}
@@ -65,6 +65,7 @@ export default function Search() {
   const [text, setText] = useState("");
   const [lastDays, setLastDays] = useState<number | string>(30);
   const [minComm, setMinComm] = useState<number | string>(20);
+  const [mentionCity, setMentionCity] = useState("");
   const [assignCity, setAssignCity] = useState("");
   const [tid, setTid] = useState("");
   const [tidLines, setTidLines] = useState<number | string>(1);
@@ -82,8 +83,8 @@ export default function Search() {
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
 
   const create = useMutation({
-    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "keyword" ? /[\n,]+/ : /\n+/).map((s) => s.trim()).filter(Boolean), lastpost_days: Number(lastDays) || 30, min_comments: Number(minComm) || 0 } }),
-    onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: kind === "apify_keyword" ? "Задача создана — Apify ищет, обычно 1–3 минуты" : "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
+    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "keyword" ? /[\n,]+/ : /\n+/).map((s) => s.trim()).filter(Boolean), lastpost_days: Number(lastDays) || 30, min_comments: Number(minComm) || 0, city_id: kind === "mentions" && mentionCity ? Number(mentionCity) : null } }),
+    onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: kind === "apify_keyword" ? "Задача создана — Apify ищет, обычно 1–3 минуты" : kind === "mentions" ? "Задача создана — упоминания собраны из базы, дальше f1 → ИИ" : "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
   });
   const adopt = useMutation({
     mutationFn: () => api("/search/adopt", { method: "POST", body: { tid: tid.trim(), lines: Number(tidLines) || 1 } }),
@@ -105,10 +106,15 @@ export default function Search() {
       <Paper mb="md">
         <Text fw={600} mb="xs">Новая задача</Text>
         <Group align="flex-start" gap="xs">
-          <Select w={230} value={kind} onChange={(v) => setKind(v || "hashtag")} data={[{ value: "apify_keyword", label: "по ключам · Apify" }, { value: "hashtag", label: "по тегам · parser.im" }, { value: "keyword", label: "по ключам · parser.im" }]} />
+          <Select w={230} value={kind} onChange={(v) => setKind(v || "hashtag")} data={[{ value: "apify_keyword", label: "по ключам · Apify" }, { value: "hashtag", label: "по тегам · parser.im" }, { value: "keyword", label: "по ключам · parser.im" }, { value: "mentions", label: "упоминания у доноров" }]} />
+          {kind === "mentions" ? (
+            <Select style={{ flex: 1 }} placeholder="город доноров (пусто — все)" clearable value={mentionCity} onChange={(v) => setMentionCity(v || "")} data={cityOptions(cities.data?.cities, false)} />
+          ) : (
           <Textarea style={{ flex: 1 }} autosize minRows={3} placeholder={kind === "hashtag" ? "каждый тег с новой строки:\n#риелтормосква\n#новостройкимосквы" : kind === "apify_keyword" ? "каждый ключ с новой строки, как в поиске Instagram:\nриелтор спб\nнедвижимость петербург\nновостройки спб" : "ключи через запятую или с новой строки:\nриелтор, агент по недвижимости\nновостройки"} value={text} onChange={(e) => setText(e.currentTarget.value)} />
-          <Button loading={create.isPending} disabled={!text.trim()} onClick={() => create.mutate()}>Запустить</Button>
+          )}
+          <Button loading={create.isPending} disabled={kind !== "mentions" && !text.trim()} onClick={() => create.mutate()}>Запустить</Button>
         </Group>
+        {kind === "mentions" && <Text size="xs" c="dimmed" mt="xs">Берём @упоминания из подписей постов доноров города и из их описаний профиля: агентства, коллеги, партнёры. Уже известные и отклонённые не попадают. Дальше f1 → ИИ «кто и где».</Text>}
         {kind === "apify_keyword" && (
           <Group gap="xs" mt="xs" align="flex-end">
             <NumberInput w={170} size="xs" label="последний пост не старше" description="дней" min={1} value={lastDays} onChange={setLastDays} />
@@ -129,7 +135,7 @@ export default function Search() {
         {items.map((t) => (
           <Paper key={t.id}>
             <Group justify="space-between" mb="xs">
-              <Group gap="xs"><Text fw={600}>{t.title}</Text><Badge size="xs" variant="light" color={t.kind === "recommendation" || t.kind === "apify_keyword" ? "cyan" : "grape"}>{t.kind === "recommendation" || t.kind === "apify_keyword" ? "Apify" : "parser.im"}</Badge><StatusBadge kind="stage" value={t.stage} /><Text size="xs" c="dimmed">{dt(t.created_at)}</Text></Group>
+              <Group gap="xs"><Text fw={600}>{t.title}</Text><Badge size="xs" variant="light" color={t.kind === "recommendation" || t.kind === "apify_keyword" ? "cyan" : t.kind === "mentions" ? "teal" : "grape"}>{t.kind === "recommendation" || t.kind === "apify_keyword" ? "Apify" : t.kind === "mentions" ? "из базы" : "parser.im"}</Badge><StatusBadge kind="stage" value={t.stage} /><Text size="xs" c="dimmed">{dt(t.created_at)}</Text></Group>
               <Group gap={6}>
                 {t.stage === "ready" && t.confident > 0 && <Button size="xs" loading={distribute.isPending} onClick={() => distribute.mutate(t.id)}>Распределить по городам · {n(t.confident)}</Button>}
                 <Button size="xs" variant="light" leftSection={<IconReportAnalytics size={14} />} onClick={() => setReportId(t.id)}>Итог</Button>

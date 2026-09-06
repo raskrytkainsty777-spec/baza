@@ -8,6 +8,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -15,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
-from ..models import LgCandidate, LgCity, LgJob, LgReject, LgSearchTask
+from ..models import IgAccount, LgCandidate, LgCity, LgDonor, LgJob, LgPost, LgReject, LgSearchTask
 from ..services.ai.client import AiError, chat_json, prompt
 from ..services.apify import client as apify
 from ..services.donors import distribute_task
@@ -61,7 +62,7 @@ async def _set_stage(db: AsyncSession, t: LgSearchTask, stage: str, note: str = 
 async def _step(db: AsyncSession, t: LgSearchTask) -> None:
     jobs = (await db.execute(select(LgJob).where(LgJob.search_task_id == t.id))).scalars().all()
     if t.stage == "collecting":
-        sjobs = [j for j in jobs if j.kind in ("search", "apify_recommend", "apify_search")]
+        sjobs = [j for j in jobs if j.kind in ("search", "apify_recommend", "apify_search", "mentions")]
         if not sjobs:
             await _start_collect(db, t)
         elif _finished(sjobs):
@@ -111,6 +112,9 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
     if t.kind == "apify_keyword":
         await _collect_apify_keywords(db, t)
         return
+    if t.kind == "mentions":
+        await _collect_mentions(db, t)
+        return
     # рекомендации — Apify, сразу
     seeds = [s for s in (inp.get("seeds") or []) if s]
     job = await enqueue_job(db, provider="apify", kind="apify_recommend", state="running",
@@ -130,6 +134,47 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
     except Exception as e:
         job.state, job.error, job.finished_at = "error", str(e)[:500], utcnow()
         await log_event(db, "job.error", f"Рекомендации Apify: {e}", entity="job", entity_id=job.id, level="error")
+    await db.commit()
+
+
+MENTION_RE = re.compile(r"@([A-Za-z0-9_.]{3,30})")
+
+
+async def _collect_mentions(db: AsyncSession, t: LgSearchTask) -> None:
+    """@упоминания в подписях постов доноров города и в их описаниях профиля: агентства,
+    коллеги по сделке, партнёры. Ничего внешнего не зовём — всё уже в базе."""
+    inp = t.input or {}
+    city_id = inp.get("city_id")
+    job = await enqueue_job(db, provider="local", kind="mentions", state="running",
+                            purpose=f"Упоминания у доноров: {t.title}", payload={"city_id": city_id}, search_task_id=t.id)
+    await db.commit()
+    try:
+        dq = select(LgDonor.id, IgAccount.username, IgAccount.bio).join(IgAccount, IgAccount.id == LgDonor.account_id)
+        if city_id:
+            dq = dq.where(LgDonor.city_id == int(city_id))
+        donors = (await db.execute(dq)).all()
+        by_login: dict[str, dict] = {}
+        for did, login, bio in donors:
+            for m in MENTION_RE.findall(bio or ""):
+                u = m.lower().rstrip(".")
+                if u != login.lower():
+                    by_login.setdefault(u, {"username": u, "found_by": f"био @{login}"})
+        pq = select(LgPost.caption, IgAccount.username).join(LgDonor, LgDonor.id == LgPost.donor_id) \
+            .join(IgAccount, IgAccount.id == LgDonor.account_id).where(LgPost.caption.isnot(None))
+        if city_id:
+            pq = pq.where(LgDonor.city_id == int(city_id))
+        async for caption, login in await db.stream(pq):
+            for m in MENTION_RE.findall(caption or ""):
+                u = m.lower().rstrip(".")
+                if u != login.lower():
+                    by_login.setdefault(u, {"username": u, "found_by": f"пост @{login}"})
+        n = await imports.add_candidates(db, t, list(by_login.values()))
+        job.state, job.count, job.rows_imported, job.finished_at, job.imported_at = "done", len(by_login), n, utcnow(), utcnow()
+        await log_event(db, "search.mentions", f"{t.title}: упоминаний {len(by_login)}, новых кандидатов {n}",
+                        entity="search_task", entity_id=t.id)
+    except Exception as e:
+        job.state, job.error, job.finished_at = "error", str(e)[:500], utcnow()
+        await log_event(db, "job.error", f"Упоминания: {e}", entity="job", entity_id=job.id, level="error")
     await db.commit()
 
 
