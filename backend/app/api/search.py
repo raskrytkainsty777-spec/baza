@@ -4,9 +4,12 @@
 сбор → f1 → ИИ «кто и где» → ready. Здесь — только создание, чтение и кнопки
 «Распределить», «В город руками», «Отклонить».
 """
+import csv
+import io
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,6 +148,70 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
                LgCandidate.city_confidence >= CONFIDENT)
         .group_by(LgCity.name).order_by(desc(func.count())))).all()
     return {**_task_dto(t), "ready_by_city": [{"city": c, "count": n} for c, n in by_city]}
+
+
+STATE_LABEL = {"collected": "собран", "filtered": "прошёл f1", "classified": "разобран ИИ",
+               "distributed": "стал донором", "unclear": "неясно", "rejected": "отклонён"}
+REJECT_LABEL = {"inactive": "неактивен (f1)", "activity": "не та деятельность", "manual": "вручную",
+                "private": "закрытый", "not_found": "не найден"}
+
+
+@router.get("/tasks/{task_id}/report")
+async def task_report(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Итог задачи: сколько кандидатов на каком этапе, по каким городам разошлись,
+    что дал каждый сид/тег, почему отклоняли. Для анализа после «готово»."""
+    t = await db.get(LgSearchTask, task_id)
+    if not t:
+        raise HTTPException(404, "Задача не найдена")
+    C = LgCandidate
+    states = (await db.execute(select(C.state, func.count()).where(C.task_id == task_id).group_by(C.state))).all()
+    reasons = (await db.execute(select(C.reject_reason, func.count()).where(
+        C.task_id == task_id, C.state == "rejected").group_by(C.reject_reason))).all()
+    cities = (await db.execute(
+        select(func.coalesce(LgCity.name, C.city_name_raw, "—"),
+               func.count().filter(C.state == "distributed"),
+               func.count().filter(C.state == "classified"),
+               func.count().filter(C.state == "unclear"))
+        .select_from(C).outerjoin(LgCity, LgCity.id == C.city_id)
+        .where(C.task_id == task_id, C.state.in_(("distributed", "classified", "unclear")))
+        .group_by(1).order_by(desc(2), desc(3), desc(4)))).all()
+    sources = (await db.execute(
+        select(func.coalesce(C.found_by, "—"), func.count(),
+               func.count().filter(C.state.in_(("filtered", "classified", "distributed", "unclear"))),
+               func.count().filter(C.state == "distributed"))
+        .where(C.task_id == task_id).group_by(1).order_by(desc(4), desc(2)))).all()
+    return {
+        "task": _task_dto(t),
+        "states": [{"state": st, "label": STATE_LABEL.get(st, st), "count": n} for st, n in states],
+        "reject_reasons": [{"reason": r, "label": REJECT_LABEL.get(r or "", r or "—"), "count": n} for r, n in reasons],
+        "cities": [{"city": c, "distributed": d, "waiting": w, "unclear": u} for c, d, w, u in cities],
+        "sources": [{"source": s, "collected": n, "passed": p, "distributed": d} for s, n, p, d in sources],
+    }
+
+
+@router.get("/tasks/{task_id}/export.csv")
+async def task_export(task_id: int, db: AsyncSession = Depends(get_db)):
+    t = await db.get(LgSearchTask, task_id)
+    if not t:
+        raise HTTPException(404, "Задача не найдена")
+    rows = (await db.execute(
+        select(LgCandidate, LgCity.name).outerjoin(LgCity, LgCity.id == LgCandidate.city_id)
+        .where(LgCandidate.task_id == task_id)
+        .order_by(LgCandidate.state, desc(LgCandidate.city_confidence).nullslast(), LgCandidate.id))).all()
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["логин", "найден через", "имя", "подписчики", "последний пост", "деятельность", "подходит",
+                "город", "город по ИИ", "уверенность %", "этап", "причина отказа", "комментарий ИИ", "адрес", "описание"])
+    for c, city in rows:
+        w.writerow([c.username, c.found_by or "", c.full_name or "", c.followers if c.followers is not None else "",
+                    c.last_post_at.strftime("%d.%m.%Y") if c.last_post_at else "", c.activity_kind or "",
+                    "" if c.activity_ok is None else ("да" if c.activity_ok else "нет"),
+                    city or "", c.city_name_raw or "", round(c.city_confidence * 100) if c.city_confidence is not None else "",
+                    STATE_LABEL.get(c.state, c.state), REJECT_LABEL.get(c.reject_reason or "", c.reject_reason or ""),
+                    (c.ai_reason or "").replace("\n", " "), c.address or "", (c.bio or "").replace("\n", " ")[:300]])
+    data = ("﻿" + buf.getvalue()).encode("utf-8")
+    return StreamingResponse(iter([data]), media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename=search_task_{t.id}.csv"})
 
 
 @router.get("/candidates")

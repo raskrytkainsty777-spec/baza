@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Badge, Button, Group, NumberInput, Paper, Select, Stack, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
+import { Badge, Button, Group, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowRight } from "@tabler/icons-react";
+import { IconArrowRight, IconDownload, IconReportAnalytics } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, qs } from "../api";
+import { api, getToken, qs } from "../api";
 import { StatusBadge, cityOptions, dt, n, useCities } from "../ui";
 
 const STAGES = ["collecting", "filtering", "classifying", "ready"];
@@ -30,6 +30,34 @@ function Stages({ t }: { t: any }) {
   );
 }
 
+function Report({ id, onClose }: { id: number | null; onClose: () => void }) {
+  const r = useQuery({ queryKey: ["search-report", id], queryFn: () => api(`/search/tasks/${id}/report`), enabled: id != null });
+  const d: any = r.data;
+  const mini = (rows: any[], head: string[], cells: (x: any) => any[]) => (
+    <Table fz="xs" verticalSpacing={3}>
+      <Table.Thead><Table.Tr>{head.map((h, i) => <Table.Th key={h} ta={i ? "right" : "left"}>{h}</Table.Th>)}</Table.Tr></Table.Thead>
+      <Table.Tbody>{rows.map((x, k) => <Table.Tr key={k}>{cells(x).map((v, i) => <Table.Td key={i} className={i ? "num" : undefined}>{v}</Table.Td>)}</Table.Tr>)}
+        {!rows.length && <Table.Tr><Table.Td colSpan={head.length}><Text c="dimmed" size="xs">пусто</Text></Table.Td></Table.Tr>}</Table.Tbody>
+    </Table>
+  );
+  return (
+    <Modal opened={id != null} onClose={onClose} size="xl" title={d ? `Итог: ${d.task.title}` : "Итог"}>
+      {d && (
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">собрано {n(d.task.collected)} → прошли f1 {n(d.task.passed)} → уверенно {n(d.task.confident)} · неясно {n(d.task.unclear)} · не те {n(d.task.rejected_activity)} → доноров {n(d.task.distributed)}</Text>
+          <SimpleGrid cols={2}>
+            <div><Text fw={600} size="sm" mb={4}>По этапам</Text>{mini(d.states, ["этап", "кандидатов"], (x) => [x.label, n(x.count)])}
+              {!!d.reject_reasons.length && <><Text fw={600} size="sm" mt="sm" mb={4}>Почему отклонены</Text>{mini(d.reject_reasons, ["причина", "шт."], (x) => [x.label, n(x.count)])}</>}</div>
+            <div><Text fw={600} size="sm" mb={4}>По городам</Text>{mini(d.cities, ["город", "доноров", "ждут распределения", "неясно"], (x) => [x.city, n(x.distributed), n(x.waiting), n(x.unclear)])}</div>
+          </SimpleGrid>
+          <div><Text fw={600} size="sm" mb={4}>{d.task.kind === "recommendation" ? "Что дал каждый сид" : "Что дал каждый тег / ключ"}</Text>
+            {mini(d.sources, ["источник", "собрано", "прошли f1", "стали донорами"], (x) => [x.source, n(x.collected), n(x.passed), n(x.distributed)])}</div>
+        </Stack>
+      )}
+    </Modal>
+  );
+}
+
 export default function Search() {
   const qc = useQueryClient();
   const cities = useCities();
@@ -39,6 +67,12 @@ export default function Search() {
   const [tid, setTid] = useState("");
   const [tidLines, setTidLines] = useState<number | string>(1);
   const [sel, setSel] = useState<number[]>([]);
+  const [reportId, setReportId] = useState<number | null>(null);
+  const downloadCsv = async (id: number) => {
+    const res = await fetch(`/api/search/tasks/${id}/export.csv`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) { notifications.show({ color: "red", message: `Не удалось скачать: ${res.status}` }); return; }
+    const blob = await res.blob(); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `search_task_${id}.csv`; a.click();
+  };
 
   const tasks = useQuery({ queryKey: ["search-tasks"], queryFn: () => api("/search/tasks"), refetchInterval: 20_000 });
   const unclear = useQuery({ queryKey: ["candidates", "unclear"], queryFn: () => api(`/search/candidates${qs({ state: "unclear", limit: 200 })}`) });
@@ -87,7 +121,11 @@ export default function Search() {
           <Paper key={t.id}>
             <Group justify="space-between" mb="xs">
               <Group gap="xs"><Text fw={600}>{t.title}</Text><Badge size="xs" variant="light" color={t.kind === "recommendation" ? "cyan" : "grape"}>{t.kind === "recommendation" ? "Apify" : "parser.im"}</Badge><StatusBadge kind="stage" value={t.stage} /><Text size="xs" c="dimmed">{dt(t.created_at)}</Text></Group>
-              {t.stage === "ready" && t.confident > 0 && <Button size="xs" loading={distribute.isPending} onClick={() => distribute.mutate(t.id)}>Распределить по городам · {n(t.confident)}</Button>}
+              <Group gap={6}>
+                {t.stage === "ready" && t.confident > 0 && <Button size="xs" loading={distribute.isPending} onClick={() => distribute.mutate(t.id)}>Распределить по городам · {n(t.confident)}</Button>}
+                <Button size="xs" variant="light" leftSection={<IconReportAnalytics size={14} />} onClick={() => setReportId(t.id)}>Итог</Button>
+                <Button size="xs" variant="subtle" leftSection={<IconDownload size={14} />} onClick={() => downloadCsv(t.id)}>CSV</Button>
+              </Group>
             </Group>
             <Stages t={t} />
             {t.error && <Text size="xs" c="red" mt="xs">{t.error}</Text>}
@@ -95,6 +133,8 @@ export default function Search() {
         ))}
         {!items.length && <Paper><Text c="dimmed" ta="center">задач пока нет</Text></Paper>}
       </Stack>
+
+      <Report id={reportId} onClose={() => setReportId(null)} />
 
       <Paper>
         <Group justify="space-between" mb="xs">

@@ -27,7 +27,11 @@ async def known_usernames(db: AsyncSession) -> set[str]:
     donors = (await db.execute(
         select(IgAccount.username).join(LgDonor, LgDonor.account_id == IgAccount.id))).scalars().all()
     rejects = (await db.execute(select(LgReject.username))).scalars().all()
-    return {u.lower() for u in donors} | {u.lower() for u in rejects}
+    # и те, кто уже кандидат в другой задаче и ещё не отклонён — чтобы два поиска не гоняли одного
+    # человека через f1 и ИИ дважды (отклонённых f1 не берём: через месяц аккаунт может ожить)
+    pending = (await db.execute(select(LgCandidate.username).where(
+        LgCandidate.state.in_(("collected", "filtered", "classified", "unclear", "distributed"))))).scalars().all()
+    return {u.lower() for u in donors} | {u.lower() for u in rejects} | {u.lower() for u in pending}
 
 
 async def add_candidates(db: AsyncSession, task: LgSearchTask, entries: list[dict]) -> int:

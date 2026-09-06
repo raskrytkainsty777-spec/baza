@@ -92,14 +92,16 @@ export default function Donors() {
           <Table.Thead><Table.Tr>
             <Table.Th w={28}><Checkbox size="xs" checked={!!items.length && sel.length === items.length} indeterminate={!!sel.length && sel.length < items.length}
               onChange={(e) => setSel(e.currentTarget.checked ? items.map((d) => d.id) : [])} /></Table.Th>
+            <Table.Th w={36} ta="right">№</Table.Th>
             <Table.Th>Логин</Table.Th><Table.Th>Город</Table.Th><Table.Th>Статус</Table.Th><Table.Th ta="right">Подп.</Table.Th>
             <Table.Th ta="right">Постов<br /><span className="muted">продающих</span></Table.Th><Table.Th ta="right">Новых</Table.Th><Table.Th ta="right">Комм.</Table.Th>
             <Table.Th ta="right">Лидов</Table.Th><Table.Th ta="right">Пробито</Table.Th><Table.Th ta="right">Заявок</Table.Th><Table.Th ta="right">₽/лид</Table.Th><Table.Th w={28} />
           </Table.Tr></Table.Thead>
           <Table.Tbody>
-            {items.map((d) => (
+            {items.map((d, i) => (
               <Table.Tr key={d.id}>
                 <Table.Td><Checkbox size="xs" checked={sel.includes(d.id)} onChange={(e) => setSel(e.currentTarget.checked ? [...sel, d.id] : sel.filter((x) => x !== d.id))} /></Table.Td>
+                <Table.Td className="num muted">{(page - 1) * limit + i + 1}</Table.Td>
                 <Table.Td>
                   <a className="rowlink mono" href={`https://instagram.com/${d.username}`} target="_blank" rel="noreferrer">{d.username}</a>
                   {d.full_name && <Text size="xs" c="dimmed" className="clip" style={{ maxWidth: 260 }} title={d.full_name}>{d.full_name}</Text>}
