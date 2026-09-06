@@ -22,15 +22,20 @@ log = logging.getLogger(__name__)
 
 # ── кандидаты ────────────────────────────────────────────────────────────────
 
-async def known_usernames(db: AsyncSession) -> set[str]:
-    """Кого не надо заводить кандидатом: уже доноры и уже отклонённые."""
+async def known_usernames(db: AsyncSession, exclude_task_id: int | None = None) -> set[str]:
+    """Кого не надо заводить кандидатом: уже доноры и уже отклонённые.
+    exclude_task_id — кандидатов этой задачи не считаем известными: подписки копятся по заданиям,
+    и повтор логина у второго донора должен прибавить счётчик, а не отброситься как дубль."""
     donors = (await db.execute(
         select(IgAccount.username).join(LgDonor, LgDonor.account_id == IgAccount.id))).scalars().all()
     rejects = (await db.execute(select(LgReject.username))).scalars().all()
     # и те, кто уже кандидат в другой задаче и ещё не отклонён — чтобы два поиска не гоняли одного
     # человека через f1 и ИИ дважды (отклонённых f1 не берём: через месяц аккаунт может ожить)
-    pending = (await db.execute(select(LgCandidate.username).where(
-        LgCandidate.state.in_(("collected", "filtered", "classified", "unclear", "distributed"))))).scalars().all()
+    pq = select(LgCandidate.username).where(
+        LgCandidate.state.in_(("collected", "filtered", "classified", "unclear", "distributed")))
+    if exclude_task_id:
+        pq = pq.where(LgCandidate.task_id != exclude_task_id)
+    pending = (await db.execute(pq)).scalars().all()
     return {u.lower() for u in donors} | {u.lower() for u in rejects} | {u.lower() for u in pending}
 
 
@@ -90,7 +95,7 @@ async def import_followings(db: AsyncSession, job: LgJob, rows: list[dict]) -> i
     task = await db.get(LgSearchTask, job.search_task_id) if job.search_task_id else None
     if not task:
         return 0
-    known = await known_usernames(db)
+    known = await known_usernames(db, exclude_task_id=task.id)
     hits: dict[str, dict] = {}
     own = [norm_login(x) for x in ((job.payload or {}).get("logins") or [])]
     default_src = own[0] if len(own) == 1 else ""
