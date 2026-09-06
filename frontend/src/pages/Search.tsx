@@ -46,7 +46,7 @@ export default function Search() {
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
 
   const create = useMutation({
-    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean) } }),
+    mutationFn: () => api("/search/tasks", { method: "POST", body: { kind, values: text.split(kind === "hashtag" ? /\n+/ : /[\n,]+/).map((s) => s.trim()).filter(Boolean) } }),
     onSuccess: () => { setText(""); bust(); notifications.show({ color: "green", message: "Задача создана — сбор начнётся, когда освободятся строки parser.im" }); }, onError: err,
   });
   const adopt = useMutation({
@@ -70,7 +70,7 @@ export default function Search() {
         <Text fw={600} mb="xs">Новая задача</Text>
         <Group align="flex-start" gap="xs">
           <Select w={230} value={kind} onChange={(v) => setKind(v || "hashtag")} data={[{ value: "hashtag", label: "по тегам · parser.im" }, { value: "keyword", label: "по ключам · parser.im" }]} />
-          <Textarea style={{ flex: 1 }} autosize minRows={1} placeholder={kind === "hashtag" ? "#риелтормосква, #новостройкимосквы, …" : "риелтор, агент по недвижимости, новостройки"} value={text} onChange={(e) => setText(e.currentTarget.value)} />
+          <Textarea style={{ flex: 1 }} autosize minRows={3} placeholder={kind === "hashtag" ? "каждый тег с новой строки:\n#риелтормосква\n#новостройкимосквы" : "ключи через запятую или с новой строки:\nриелтор, агент по недвижимости\nновостройки"} value={text} onChange={(e) => setText(e.currentTarget.value)} />
           <Button loading={create.isPending} disabled={!text.trim()} onClick={() => create.mutate()}>Запустить</Button>
         </Group>
         <Group gap="xs" mt="sm" align="flex-end">
