@@ -22,7 +22,7 @@ from ..services.apify import client as apify
 from ..services.donors import distribute_task
 from . import imports
 from .common import (
-    add_ai_cost, ai_on, as_int, chunks, city_by_name, enqueue_job, heartbeat, log_event, settings_all, utcnow,
+    OTHER_CITY, add_ai_cost, ai_on, as_int, chunks, city_or_other, enqueue_job, heartbeat, log_event, settings_all, utcnow,
 )
 
 log = logging.getLogger("discovery")
@@ -352,7 +352,7 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
         await _close_classify(db, t)
         return
     values = await settings_all(db)
-    cities = ", ".join((await db.execute(select(LgCity.name).order_by(LgCity.name))).scalars().all())
+    cities = ", ".join((await db.execute(select(LgCity.name).where(LgCity.name != OTHER_CITY).order_by(LgCity.name))).scalars().all())
     model = (values.get("ai_model.cands") or "").strip() or None
     system = (prompt("activity", values) + "\n\n" + prompt("city", values, cities=cities)
               + "\n\nФормат ответа: {\"activity_kind\": \"…\", \"ok\": true, \"city\": \"…\" или null, "
@@ -383,7 +383,7 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
         except (TypeError, ValueError):
             c.city_confidence = 0.0
         c.ai_reason = (str(r.get("reason") or ""))[:1000] or None
-        city = await city_by_name(db, c.city_name_raw)
+        city = await city_or_other(db, c.city_name_raw)   # город вне списка → «Другое», донора там не трогаем
         c.city_id = city.id if city else None
         if not c.activity_ok:
             c.state, c.reject_reason = "rejected", "activity"

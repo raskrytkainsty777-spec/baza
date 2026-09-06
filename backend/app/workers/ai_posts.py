@@ -50,7 +50,7 @@ async def _pass(db: AsyncSession) -> None:
     if not rows:
         return
     values = await settings_all(db)
-    cities = ", ".join((await db.execute(select(LgCity.name).order_by(LgCity.name))).scalars().all())
+    cities = ", ".join((await db.execute(select(LgCity.name).where(LgCity.name != "Другое").order_by(LgCity.name))).scalars().all())
     model = (values.get("ai_model.posts") or "").strip() or None
     base = prompt("post", values)
     with_city = base + "\n\n" + prompt("post_city", values, cities=cities)

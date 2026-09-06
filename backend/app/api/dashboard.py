@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import LgCity, LgComment, LgDonor, LgLead, LgPost
+from ..workers.common import city_sort_key
 from .deps import require_token
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(require_token)])
@@ -44,7 +45,7 @@ async def dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     since, until = _since(period, date_from), _until(date_to)
-    cities = (await db.execute(select(LgCity).order_by(LgCity.is_active.desc(), LgCity.name))).scalars().all()
+    cities = sorted((await db.execute(select(LgCity))).scalars().all(), key=city_sort_key)
 
     donors = {}
     for city_id, status, n in (await db.execute(

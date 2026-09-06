@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from ..models import LgCity, LgDonor, LgLead, LgPost
 from ..workers.common import as_int, settings_all, utcnow
+from ..workers.common import city_sort_key
 from .deps import require_token
 
 router = APIRouter(prefix="/api/cities", tags=["cities"], dependencies=[Depends(require_token)])
@@ -105,7 +106,7 @@ async def _counts(db: AsyncSession) -> dict[int, dict]:
 
 @router.get("")
 async def list_cities(db: AsyncSession = Depends(get_db)):
-    cities = (await db.execute(select(LgCity).order_by(LgCity.is_active.desc(), LgCity.name))).scalars().all()
+    cities = sorted((await db.execute(select(LgCity))).scalars().all(), key=city_sort_key)
     counts = await _counts(db)
     unclassified = (await db.execute(
         select(func.count()).select_from(LgDonor).where(LgDonor.city_id.is_(None)))).scalar() or 0

@@ -152,18 +152,27 @@ async def city_by_name(db: AsyncSession, name: str | None) -> LgCity | None:
     return None
 
 
+OTHER_CITY = "Другое"
+# порядок в списках: заказчик хочет эти четыре сверху, остальные по алфавиту, «Другое» в конце
+CITY_ORDER = {"Москва": 1, "Санкт-Петербург": 2, "Новосибирск": 3, "Екатеринбург": 4, OTHER_CITY: 99}
+
+
+def city_sort_key(c: LgCity) -> tuple:
+    return (CITY_ORDER.get(c.name, 50), c.name)
+
+
 async def get_or_create_city(db: AsyncSession, name: str | None) -> LgCity | None:
-    """Город из ответа ИИ. Нет такого — заводим выключенным, чтобы пост не потерялся,
-    а оператор увидел новый город в списке и решил, включать ли."""
+    """Город из ответа ИИ. Работаем только с фиксированным списком городов: всё, что вне его,
+    попадает в «Другое» (решение заказчика 06.09.2026) — новых городов не заводим."""
     c = await city_by_name(db, name)
     if c or not name:
         return c
-    n = str(name).strip()[:80]
+    n = str(name).strip()
     if len(n) < 2 or n.lower() in ("null", "none", "нет", "неясно"):
         return None
-    c = LgCity(name=n, is_active=False)
-    db.add(c)
-    await db.flush()
-    await log_event(db, "city.created_by_ai", f"ИИ назвала новый город «{n}» — заведён выключенным",
-                    entity="city", entity_id=c.id, level="warn")
-    return c
+    return await city_by_name(db, OTHER_CITY)
+
+
+async def city_or_other(db: AsyncSession, name: str | None) -> LgCity | None:
+    """То же для кандидатов: назван реальный город не из списка → «Другое»."""
+    return await get_or_create_city(db, name)

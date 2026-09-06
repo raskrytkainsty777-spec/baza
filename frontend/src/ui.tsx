@@ -80,6 +80,6 @@ export function useCities() {
 export function cityOptions(cities: City[] | undefined, withAll = true) {
   const opts = (cities || [])
     .filter((c) => c.is_active || c.donors_new + c.donors_monitored + c.donors_paused > 0)
-    .map((c) => ({ value: String(c.id), label: c.is_active ? c.name : `${c.name} (выкл)` }));
+    .map((c) => ({ value: String(c.id), label: c.is_active || c.name === "Другое" ? c.name : `${c.name} (выкл)` }));
   return withAll ? [{ value: "", label: "все города" }, ...opts] : opts;
 }
