@@ -133,6 +133,15 @@ async def _start_collect(db: AsyncSession, t: LgSearchTask) -> None:
     await db.commit()
 
 
+def _addr(it: dict) -> str | None:
+    """businessAddress у Apify — словарь (city_name, street_address, zip_code) либо строка."""
+    a = it.get("businessAddress") or it.get("city")
+    if isinstance(a, dict):
+        parts = [str(a.get(k) or "").strip() for k in ("city_name", "street_address", "zip_code")]
+        a = ", ".join(x for x in parts if x)
+    return (str(a).strip() or None) if a else None
+
+
 async def _collect_apify_keywords(db: AsyncSession, t: LgSearchTask) -> None:
     """Поиск профилей по словам через Apify: в ответе уже есть описание, подписчики и 12 последних
     постов с комментариями, так что f1 не нужен — фильтр активности применяем здесь же."""
@@ -164,7 +173,7 @@ async def _collect_apify_keywords(db: AsyncSession, t: LgSearchTask) -> None:
             best = max((int(p.get("commentsCount") or 0) for p in posts), default=0)
             e = {"username": u, "ig_id": it.get("id"), "found_by": ("ключ: " + str(it.get("searchTerm") or ""))[:200],
                  "full_name": it.get("fullName"), "bio": it.get("biography"),
-                 "address": it.get("businessAddress") or it.get("city") or None,
+                 "address": _addr(it),
                  "followers": it.get("followersCount"), "posts_count": it.get("postsCount"),
                  "last_post_at": last, "max_comments": best}
             if it.get("private"):
