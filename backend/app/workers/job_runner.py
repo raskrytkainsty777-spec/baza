@@ -26,7 +26,8 @@ REMOTE_KEEP_DAYS = 3
 
 # задания, у которых хотя бы один tid стоит в очереди самого parser.im: тариф исчерпан,
 # как бы мы ни считали строки у себя — новых не запускаем, пока очередь не рассосётся
-_remote_queued: set[int] = set()
+_remote_queued: set[int] = set()          # парсинг: посты, комментарии, теги, подписки
+_remote_queued_filter: set[int] = set()   # f1 — отдельный тариф, свой пул
 
 # доля строк тарифа на вид работ в первом проходе; остаток во втором проходе — любому по приоритету
 SHARES = {"comments": 0.5, "posts_intake": 0.3, "filter": 0.2, "search": 0.2, "followings": 0.2}
@@ -174,10 +175,11 @@ async def _poll_running(db: AsyncSession) -> None:
         if not statuses:
             continue
         job.count = max(job.count or 0, counts)
+        pool = _remote_queued_filter if job.kind == "filter" else _remote_queued
         if "queue" in statuses:
-            _remote_queued.add(job.id)
+            pool.add(job.id)
         else:
-            _remote_queued.discard(job.id)
+            pool.discard(job.id)
         if all(s in DONE_STATES for s in statuses):
             job.finished_at = utcnow()
             await _complete(db, job, errors[0] if errors else None)
@@ -211,12 +213,14 @@ async def _start_queued(db: AsyncSession) -> None:
     if not queued:
         return
     if _remote_queued:
-        log.info("parser.im: %d наших заданий стоят в их очереди — новые не запускаем (у нас занято %d/%d)",
+        log.info("parser.im: %d наших заданий стоят в их очереди — парсинг не запускаем (у нас занято %d/%d)",
                  len(_remote_queued), busy, max_lines)
-        return
     for pass_no in (1, 2):
         for job in queued:
             if job.state != "queued":
+                continue
+            # очередь на стороне parser.im считаем по пулам: застрявший f1 не должен останавливать посты
+            if (_remote_queued_filter if job.kind == "filter" else _remote_queued):
                 continue
             if job.kind == "posts_intake" and not collecting:
                 continue
