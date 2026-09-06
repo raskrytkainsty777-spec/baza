@@ -91,6 +91,10 @@ async def _city_from_posts(db: AsyncSession, d: LgDonor) -> None:
         .group_by(LgPost.city_id).order_by(func.count().desc()))).all()
     if not rows:
         return
+    if d.city_id:
+        cur = await db.get(LgCity, d.city_id)
+        if cur and cur.name == "Мультиагент":
+            return   # мультиагент остаётся: его посты живут в своих городах, сам он — нет
     top_city, top_n = rows[0]
     labelled = sum(n for _, n in rows)
     if top_n < 2 or top_n / labelled < CITY_SHARE or top_city == d.city_id:

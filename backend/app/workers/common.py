@@ -153,8 +153,10 @@ async def city_by_name(db: AsyncSession, name: str | None) -> LgCity | None:
 
 
 OTHER_CITY = "Другое"
+MULTI_CITY = "Мультиагент"   # риелтор на 2+ города, среди них наш: посты раскидывает ИИ
+SPECIAL_CITIES = (OTHER_CITY, MULTI_CITY)
 # порядок в списках: заказчик хочет эти четыре сверху, остальные по алфавиту, «Другое» в конце
-CITY_ORDER = {"Москва": 1, "Санкт-Петербург": 2, "Новосибирск": 3, "Екатеринбург": 4, OTHER_CITY: 99}
+CITY_ORDER = {"Москва": 1, "Санкт-Петербург": 2, "Новосибирск": 3, "Екатеринбург": 4, MULTI_CITY: 98, OTHER_CITY: 99}
 
 
 def city_sort_key(c: LgCity) -> tuple:

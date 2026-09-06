@@ -22,7 +22,8 @@ from ..services.apify import client as apify
 from ..services.donors import distribute_task
 from . import imports
 from .common import (
-    OTHER_CITY, add_ai_cost, ai_on, as_int, chunks, city_or_other, enqueue_job, heartbeat, log_event, settings_all, utcnow,
+    MULTI_CITY, SPECIAL_CITIES, add_ai_cost, ai_on, as_int, chunks, city_by_name, city_or_other, enqueue_job, heartbeat,
+    log_event, settings_all, utcnow,
 )
 
 log = logging.getLogger("discovery")
@@ -352,11 +353,11 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
         await _close_classify(db, t)
         return
     values = await settings_all(db)
-    cities = ", ".join((await db.execute(select(LgCity.name).where(LgCity.name != OTHER_CITY).order_by(LgCity.name))).scalars().all())
+    cities = ", ".join((await db.execute(select(LgCity.name).where(LgCity.name.notin_(SPECIAL_CITIES)).order_by(LgCity.name))).scalars().all())
     model = (values.get("ai_model.cands") or "").strip() or None
     system = (prompt("activity", values) + "\n\n" + prompt("city", values, cities=cities)
               + "\n\nФормат ответа: {\"activity_kind\": \"…\", \"ok\": true, \"city\": \"…\" или null, "
-                "\"confidence\": 0.0, \"reason\": \"коротко почему\"}")
+                "\"confidence\": 0.0, \"cities\": [\"…\"], \"reason\": \"коротко почему\"}")
     sem = asyncio.Semaphore(AI_CONCURRENCY)
 
     async def ask(c: LgCandidate):
@@ -385,6 +386,15 @@ async def _classify_batch(db: AsyncSession, t: LgSearchTask) -> None:
         c.ai_reason = (str(r.get("reason") or ""))[:1000] or None
         city = await city_or_other(db, c.city_name_raw)   # город вне списка → «Другое», донора там не трогаем
         c.city_id = city.id if city else None
+        # два и более городов, среди них наш → «Мультиагент»: посты раскидает ИИ по городам
+        raw_cities = r.get("cities") if isinstance(r.get("cities"), list) else []
+        names = {str(x).strip() for x in raw_cities if str(x).strip()}
+        if len(names) >= 2:
+            ours = [m for m in [await city_by_name(db, x) for x in names] if m and m.name not in SPECIAL_CITIES]
+            multi = await city_by_name(db, MULTI_CITY)
+            if ours and multi:
+                c.city_id, c.city_name_raw, c.city_confidence = multi.id, MULTI_CITY, 1.0
+                c.ai_reason = ("города: " + ", ".join(sorted(names)) + ". " + (c.ai_reason or ""))[:1000]
         if not c.activity_ok:
             c.state, c.reject_reason = "rejected", "activity"
             await db.execute(insert(LgReject).values(username=c.username, reason="activity",
