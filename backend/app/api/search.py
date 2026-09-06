@@ -167,19 +167,20 @@ async def task_report(task_id: int, db: AsyncSession = Depends(get_db)):
     states = (await db.execute(select(C.state, func.count()).where(C.task_id == task_id).group_by(C.state))).all()
     reasons = (await db.execute(select(C.reject_reason, func.count()).where(
         C.task_id == task_id, C.state == "rejected").group_by(C.reject_reason))).all()
+    city_expr = func.coalesce(LgCity.name, C.city_name_raw, "—")
+    c_dist, c_wait, c_unc = (func.count().filter(C.state == "distributed"), func.count().filter(C.state == "classified"),
+                             func.count().filter(C.state == "unclear"))
     cities = (await db.execute(
-        select(func.coalesce(LgCity.name, C.city_name_raw, "—"),
-               func.count().filter(C.state == "distributed"),
-               func.count().filter(C.state == "classified"),
-               func.count().filter(C.state == "unclear"))
+        select(city_expr, c_dist, c_wait, c_unc)
         .select_from(C).outerjoin(LgCity, LgCity.id == C.city_id)
         .where(C.task_id == task_id, C.state.in_(("distributed", "classified", "unclear")))
-        .group_by(1).order_by(desc(2), desc(3), desc(4)))).all()
+        .group_by(city_expr).order_by(desc(c_dist), desc(c_wait), desc(c_unc)))).all()
+    src_expr = func.coalesce(C.found_by, "—")
+    s_all, s_pass, s_dist = (func.count(), func.count().filter(C.state.in_(("filtered", "classified", "distributed", "unclear"))),
+                             func.count().filter(C.state == "distributed"))
     sources = (await db.execute(
-        select(func.coalesce(C.found_by, "—"), func.count(),
-               func.count().filter(C.state.in_(("filtered", "classified", "distributed", "unclear"))),
-               func.count().filter(C.state == "distributed"))
-        .where(C.task_id == task_id).group_by(1).order_by(desc(4), desc(2)))).all()
+        select(src_expr, s_all, s_pass, s_dist)
+        .where(C.task_id == task_id).group_by(src_expr).order_by(desc(s_dist), desc(s_all)))).all()
     return {
         "task": _task_dto(t),
         "states": [{"state": st, "label": STATE_LABEL.get(st, st), "count": n} for st, n in states],
