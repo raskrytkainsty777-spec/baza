@@ -68,7 +68,10 @@ async def list_donors(
                func.count(LgLead.id).filter(LgLead.crm_status == "deal").label("deals"),
                func.coalesce(func.sum(LgLead.cost_contact + LgLead.cost_handling), 0).label("spend"))
         .join(LgLead, LgLead.post_id == LgPost.id)
-        .where(LgLead.created_at >= since)
+        .join(LgComment, LgComment.id == LgLead.comment_id)
+        # окно — по дате написания комментария, как и у «Комм.»: иначе первый сбор
+        # старых комментариев у нового донора превращается в тысячи «лидов за неделю»
+        .where(LgComment.written_at >= since)
         .group_by(LgPost.donor_id).subquery()
     )
 
