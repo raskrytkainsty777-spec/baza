@@ -208,6 +208,8 @@ async def import_posts(db: AsyncSession, job: LgJob, rows: list[dict], intake_da
     for r in rows:
         d = donors.get(norm_login(r.get("source") or ""))
         url = unescape_url(r.get("post_url") or "")
+        if url and not url.startswith("http"):
+            url = "https://" + url.lstrip("/")
         sc = shortcode_of(url)
         if not d or not sc:
             continue

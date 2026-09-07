@@ -165,6 +165,11 @@ async def _counters_parserim(db: AsyncSession, rows: list) -> None:
     await db.commit()
 
 
+def _full_url(u: str) -> str:
+    u = (u or "").strip()
+    return u if u.startswith("http") else "https://" + u.lstrip("/")
+
+
 async def _counters(db: AsyncSession, values: dict) -> None:
     # какие посты сверяем: с лидами — всегда; без лидов — только 5 дней с публикации.
     # Остальные активные — с обхода долой.
@@ -203,7 +208,8 @@ async def _counters(db: AsyncSession, values: dict) -> None:
         await db.commit()
         try:
             items, cost = await run_collect(apify.ACTOR_SCRAPER, {
-                "directUrls": [p.url for p, _ in chunk], "resultsType": "posts", "resultsLimit": 1, "addParentData": False,
+                # parser.im отдаёт ссылки без схемы — Apify такие молча пропускает
+                "directUrls": [_full_url(p.url) for p, _ in chunk], "resultsType": "posts", "resultsLimit": 1, "addParentData": False,
             })
             seen = 0
             for it in items:
