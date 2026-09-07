@@ -180,14 +180,16 @@ async def _counters(db: AsyncSession, values: dict) -> None:
     if stale:
         await log_event(db, "posts.frozen", f"Сняты с обхода: {len(stale)} постов старше {POST_FRESH_DAYS} дн без лидов")
         await db.commit()
+    recently = utcnow() - timedelta(hours=6)   # уже сверенные за последние часы не гоняем повторно
     rows = (await db.execute(
         select(LgPost, LgCity.post_freeze_days).join(LgDonor, LgDonor.id == LgPost.donor_id)
         .join(LgCity, LgCity.id == LgPost.city_id)
         .where(LgDonor.status == "monitored", LgCity.is_active.is_(True), LgCity.collect_comments.is_(True),
-               LgPost.monitor_status.in_(["active", "forced"]), LgPost.is_selling.is_(True), keep))).all()
+               LgPost.monitor_status.in_(["active", "forced"]), LgPost.is_selling.is_(True), keep,
+               or_(LgPost.last_checked_at.is_(None), LgPost.last_checked_at < recently)))).all()
     if not rows:
         return
-    if values.get("monitor_provider", "parserim") == "parserim":
+    if values.get("counters_provider", "apify") == "parserim":
         await _counters_parserim(db, rows)
         return
     by_sc = {p.shortcode: (p, freeze) for p, freeze in rows}

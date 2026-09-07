@@ -22,7 +22,8 @@ DEFAULTS: dict[str, str] = {
     "parserim_lines": "10",                 # строк в тарифе parser.im (парсинг: посты, комментарии, теги, подписки)
     "parserim_filter_lines": "10",          # потоков фильтра f1 в тарифе parser.im — отдельный пул
     "silent_recheck_days": "14",            # доноров на паузе за молчание перепроверяем через parser.im раз в N дней
-    "monitor_provider": "parserim",         # утренний обход: parserim (строки тарифа) | apify (деньги)
+    "monitor_provider": "parserim",         # обход новых постов: parserim (строки тарифа) | apify (деньги)
+    "counters_provider": "apify",           # сверка комментариев: apify (~2 $/1000 постов, 40 мин) | parserim (бесплатно, ~6 ч)
     "big_post_threshold": "1000",           # с какого числа комментариев пост досбирается через Apify
     "min_comments_first": "6",              # первый сбор: посты с меньшим числом комментариев пропускаем (прирост их подхватит)
     "f1_lastpost_days": "30",               # f1: отсев кандидатов, у кого последний пост старше N дней
