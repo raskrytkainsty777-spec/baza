@@ -92,6 +92,18 @@ async def me(c: CabClient = Depends(require_client)):
     return _client_dto(c)
 
 
+@router.post("/settings/apply-limit")
+async def settings_apply_limit(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    """Лимит по умолчанию → всем источникам клиента; воркер cab_sync донесёт до LF по каждой связке."""
+    rows = (await db.execute(select(CabSource).where(CabSource.client_id == c.id))).scalars().all()
+    n = 0
+    for s in rows:
+        if s.limit != c.limit_default:
+            s.limit, s.lf_dirty, n = c.limit_default, True, n + 1
+    await db.commit()
+    return {"updated": n, "limit": c.limit_default}
+
+
 @router.patch("/settings")
 async def settings_patch(body: SettingsIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
     if body.contact_cost is not None:
