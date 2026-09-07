@@ -221,10 +221,19 @@ async def list_sources(
     if company_id:
         stmt = stmt.where(CabSource.company_id == company_id)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+    # итого по всей выборке (не только по странице): лимит — сумма у включённых, остальное — по всем
+    sub = stmt.with_only_columns(CabSource.id, CabSource.limit, CabSource.contacts_total, CabSource.contacts_today,
+                                 CabSource.repeats_total, enabled.label("on")).subquery()
+    tot = (await db.execute(select(
+        func.coalesce(func.sum(sub.c.limit).filter(sub.c.on), 0), func.coalesce(func.sum(sub.c.contacts_total), 0),
+        func.coalesce(func.sum(sub.c.contacts_today), 0), func.coalesce(func.sum(sub.c.repeats_total), 0),
+        func.count().filter(sub.c.on)))).one()
+    totals = {"limit_active": int(tot[0]), "contacts_total": int(tot[1]), "contacts_today": int(tot[2]),
+              "repeats_total": int(tot[3]), "active": int(tot[4])}
     col = {"company": CabCompany.name, "enabled": enabled}.get(sort) or SORTS.get(sort, CabSource.added_at)
     stmt = stmt.order_by(desc(col).nullslast() if order == "desc" else col.asc().nullsfirst(), CabSource.id)
     rows = (await db.execute(stmt.limit(limit).offset((page - 1) * limit))).all()
-    return {"total": total, "page": page, "limit": limit, "items": [{
+    return {"total": total, "page": page, "limit": limit, "totals": totals, "items": [{
         "id": s.id, "lf_source_id": s.lf_source_id, "phone": s.phone, "company_id": s.company_id, "company": comp,
         "added_at": s.added_at, "enabled": bool(s.enabled_by_user and s.enabled_by_schedule),
         "enabled_by_user": s.enabled_by_user, "enabled_by_schedule": s.enabled_by_schedule,
