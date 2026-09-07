@@ -132,8 +132,7 @@ export default function Sources() {
           <Table.Tbody>
             {list.data?.totals && (
               <Table.Tr style={{ background: "var(--mantine-color-gray-0)", fontWeight: 600 }}>
-                <Table.Td /><Table.Td colSpan={4}>Итого{list.data.total !== list.data.totals.active ? <Text span c="dimmed" fw={400}> · включено {list.data.totals.active} из {list.data.total}</Text> : ""}</Table.Td>
-                <Table.Td><Text size="xs" c="dimmed" fw={400}>лимит — сумма по включённым</Text></Table.Td>
+                <Table.Td /><Table.Td>Итого</Table.Td><Table.Td /><Table.Td /><Table.Td /><Table.Td>{list.data.total !== list.data.totals.active ? <Text span c="dimmed" fw={400}>включено {list.data.totals.active} из {list.data.total}</Text> : ""}</Table.Td><Table.Td />
                 <Table.Td className="num">{list.data.totals.limit_active}</Table.Td>
                 <Table.Td className="num">{list.data.totals.contacts_total}</Table.Td>
                 <Table.Td className="num">{list.data.totals.contacts_today}</Table.Td>
