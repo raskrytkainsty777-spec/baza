@@ -140,7 +140,6 @@ async def summary_text(db: AsyncSession, c: CabClient) -> str:
              f"Куплено сегодня: <b>{today[0]}</b> контактов" + (f" (повторов {today[1]})" if today[1] else ""),
              f"За {'7 дней' if active_days == 7 else f'{active_days} дн.'}: {week} · в среднем {avg:.0f} в день",
              f"Баланс: <b>{c.balance_contacts if c.balance_contacts is not None else '—'}</b> контактов"
-             + (f" · {c.lf_balance_rub:.0f} ₽" if c.lf_balance_rub is not None else "")
              + (f" · хватит примерно на {days_left} дн." if days_left is not None else ""),
              f"Источников включено: {src_on} из {src_all}",
              "Закупка: " + ("идёт" if c.lf_status == "active" else (c.lf_status or "не запущена"))]

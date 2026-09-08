@@ -92,7 +92,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         {m && (
           <Group gap="xs" mb="md">
             <Badge size="lg" variant="light" color={m.balance_contacts ? "teal" : "red"} style={{ textTransform: "none" }}>
-              баланс: {m.balance_contacts == null ? "—" : n(m.balance_contacts)} контактов{m.balance_rub != null ? ` · ${n(m.balance_rub)} ₽` : ""}
+              баланс: {m.balance_contacts == null ? "—" : n(m.balance_contacts)} контактов
             </Badge>
             <Badge size="lg" variant="light" color={m.lf_status === "active" ? "green" : "gray"} style={{ textTransform: "none" }}>закупка: {m.lf_status === "active" ? "идёт" : m.lf_status || "не запущена"}</Badge>
             {m.lf_error && <Badge size="lg" variant="light" color="red" style={{ textTransform: "none" }}>{m.lf_error.slice(0, 80)}</Badge>}

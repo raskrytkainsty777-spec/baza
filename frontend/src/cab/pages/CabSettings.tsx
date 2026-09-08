@@ -39,7 +39,7 @@ export default function CabSettings() {
               <NumberInput label="Цена покупки контакта, ₽" value={f.contact_cost ?? 0} onChange={(v) => setF({ ...f, contact_cost: v })} min={0} decimalScale={2} />
               <NumberInput label="Цена обработки контакта, ₽" value={f.handling_cost ?? 0} onChange={(v) => setF({ ...f, handling_cost: v })} min={0} decimalScale={2} />
             </Group>
-            <Text size="xs" c="dimmed" mt="xs">Стоимость лида = (куплено × покупка + куплено × обработка) / лидов. Цена заявки у Leads Factory: {m?.answer_cost ?? "—"} ₽.</Text>
+            <Text size="xs" c="dimmed" mt="xs">Стоимость лида = (куплено × покупка + куплено × обработка) / лидов.</Text>
           </Paper>
           <Paper>
             <Text fw={600} mb="xs">Умолчания при добавлении источников</Text>

@@ -71,8 +71,9 @@ def _client_dto(c: CabClient) -> dict:
     cost = float(c.lf_answer_cost) if c.lf_answer_cost is not None else None
     return {
         "id": c.id, "login": c.login, "name": c.name,
-        "balance_contacts": c.balance_contacts, "balance_rub": float(c.lf_balance_rub) if c.lf_balance_rub is not None else None,
-        "answer_cost": cost, "balance_synced_at": c.balance_synced_at, "contacts_synced_at": c.contacts_synced_at,
+        # рубли и цену заявки LF клиенту не показываем (решение 08.09.2026): только остаток в контактах
+        "balance_contacts": c.balance_contacts, "balance_rub": None,
+        "answer_cost": None, "balance_synced_at": c.balance_synced_at, "contacts_synced_at": c.contacts_synced_at,
         "lf_status": c.lf_status, "lf_error": c.lf_error,
         "contact_cost": float(c.contact_cost or 0), "handling_cost": float(c.handling_cost or 0),
         "suppliers_default": c.suppliers_default or PHONE_SUPPLIERS, "limit_default": c.limit_default,
