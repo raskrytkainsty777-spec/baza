@@ -131,6 +131,10 @@ class LF:
         return await self._req("POST", "/v1/vdl/api/sources/update_will_work_bulk",
                                json={"source_ids": ids, "will_work": on})
 
+    async def sources_hide(self, ids: list[int]) -> dict:
+        """Удаления источника в API нет — скрываем (плюс will_work=false), это максимум."""
+        return await self._req("POST", "/v1/vdl/api/sources/hide", json={"source_ids": ids})
+
     async def sources_settings(self, ids: list[int], **fields) -> dict:
         return await self._req("POST", "/v1/vdl/api/sources/update_settings", json={"source_ids": ids, **fields})
 

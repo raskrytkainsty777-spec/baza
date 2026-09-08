@@ -13,13 +13,13 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import case, desc, func, or_, select
+from sqlalchemy import case, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import CabBlacklist, CabClient, CabCompany, CabContact, CabInbox, CabSource
+from ..models import CabBlacklist, CabClient, CabCompany, CabContact, CabFoundSource, CabInbox, CabSource
 from ..services.leadsfactory.client import LFError, MSK, PHONE_SUPPLIERS, SUPPLIERS, lf_for
-from ..workers.common import utcnow
+from ..workers.common import log_event, utcnow
 from .cab_auth import login_client, require_client
 
 router = APIRouter(prefix="/api/cab", tags=["cab"])
@@ -244,6 +244,39 @@ async def list_sources(
         "lf_sebes_14": float(s.lf_sebes_14) if s.lf_sebes_14 is not None else None,
         "lf_success_14": float(s.lf_success_14) if s.lf_success_14 is not None else None,
     } for s, comp in rows]}
+
+
+class DeleteIn(BaseModel):
+    ids: list[int]
+
+
+@router.post("/sources/delete")
+async def sources_delete(body: DeleteIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    """Навсегда: в LF источник выключаем и скрываем (удаления в их API нет), у нас удаляем строку;
+    купленные контакты остаются, только без привязки к источнику."""
+    rows = (await db.execute(select(CabSource).where(CabSource.client_id == c.id, CabSource.id.in_(body.ids)))).scalars().all()
+    if not rows:
+        raise HTTPException(404, "Источники не найдены")
+    lf_ids = [s.lf_source_id for s in rows if s.lf_source_id]
+    lf_note = ""
+    if lf_ids:
+        try:
+            lf = await lf_for(db)
+            await lf.sources_will_work(lf_ids, False)
+            await lf.sources_hide(lf_ids)
+        except LFError as e:
+            raise HTTPException(502, f"Leads Factory не ответил: {e}. Источники не удалены, повторите позже")
+        lf_note = f", в LF выключены и скрыты {len(lf_ids)}"
+    ids = [s.id for s in rows]
+    await db.execute(update(CabContact).where(CabContact.source_id.in_(ids)).values(source_id=None))
+    await db.execute(update(CabFoundSource).where(CabFoundSource.source_id.in_(ids)).values(source_id=None))
+    phones = [s.phone for s in rows]
+    for s in rows:
+        await db.delete(s)
+    await log_event(db, "cab.sources_deleted", f"Клиент {c.login}: удалил источники {', '.join(phones[:5])}"
+                    + (f" +{len(phones) - 5}" if len(phones) > 5 else "") + lf_note, entity="cab_client", entity_id=c.id)
+    await db.commit()
+    return {"deleted": len(ids)}
 
 
 @router.post("/sources/bulk")

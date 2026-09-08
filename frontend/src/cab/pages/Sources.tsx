@@ -46,6 +46,14 @@ export default function Sources() {
     onSuccess: (r: any) => { setText(""); bust(); notifications.show({ color: "green", message: `Добавлено ${r.added}, дублей ${r.duplicates}, нераспознано ${r.invalid_count}. ${r.note}` }); },
     onError: err,
   });
+  const del = useMutation({
+    mutationFn: () => cabApi("/sources/delete", { method: "POST", body: { ids: sel } }),
+    onSuccess: (r: any) => { setSel([]); bust(); notifications.show({ color: "green", message: `Удалено ${r.deleted} источников — в Leads Factory выключены и скрыты` }); },
+    onError: err,
+  });
+  const askDelete = () => {
+    if (window.confirm(`Удалить ${sel.length} источников навсегда? Закупка по ним остановится, вернуть будет нельзя. Купленные контакты останутся.`)) del.mutate();
+  };
   const bulk = useMutation({
     mutationFn: (b: any) => cabApi("/sources/bulk", { method: "POST", body: { ids: sel, ...b } }),
     onSuccess: (r: any) => { bust(); notifications.show({ color: "green", message: `Изменено ${r.updated} источников — уйдёт в LF в течение минуты` }); },
@@ -115,6 +123,7 @@ export default function Sources() {
             <Group gap={4} align="flex-end"><NumberInput size="xs" w={90} label="лимит" value={bulkLimit} onChange={setBulkLimit} min={0} /><Button size="xs" variant="light" onClick={() => bulk.mutate({ action: "limit", value: Number(bulkLimit) })}>применить</Button></Group>
             <Button size="xs" variant="light" color="green" onClick={() => bulk.mutate({ action: "enable" })}>включить</Button>
             <Button size="xs" variant="light" color="red" onClick={() => bulk.mutate({ action: "disable" })}>выключить</Button>
+            <Button size="xs" variant="filled" color="red" loading={del.isPending} onClick={askDelete}>удалить навсегда</Button>
             <Group gap={4} align="flex-end"><MultiSelect size="xs" w={260} label="поставщики" data={supOpts} value={bulkSup} onChange={setBulkSup} /><Button size="xs" variant="light" disabled={!bulkSup.length} onClick={() => bulk.mutate({ action: "suppliers", value: bulkSup })}>задать</Button></Group>
             <Group gap={4} align="flex-end"><MultiSelect size="xs" w={260} label="регионы" data={geoOpts} value={bulkGeo} onChange={setBulkGeo} searchable /><Button size="xs" variant="light" disabled={!bulkGeo.length} onClick={() => bulk.mutate({ action: "geo_add", value: bulkGeo.map(Number) })}>добавить</Button><Button size="xs" variant="subtle" disabled={!bulkGeo.length} onClick={() => bulk.mutate({ action: "geo_remove", value: bulkGeo.map(Number) })}>убрать</Button></Group>
             <Button size="xs" variant="subtle" color="gray" onClick={() => setSel([])}>снять выбор</Button>
