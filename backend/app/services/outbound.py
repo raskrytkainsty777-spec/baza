@@ -6,8 +6,12 @@
 лишние поля уезжают в payload и видны сценарию. Ответ приходит на
 /api/probe/callback: {"ref", "status", "parsed": {"phone": …}}.
 """
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+MSK_TZ = ZoneInfo("Europe/Moscow")
 
 from ..config import settings
 from ..models import IgAccount, LgCity, LgComment, LgLead, LgOutbox, LgPost
@@ -17,6 +21,8 @@ def probe_url(city: LgCity) -> str | None:
     token = (city.probe_hook_token or settings.probe_hook_token or "").strip()
     if not token:
         return None
+    if token.startswith("http"):
+        return token   # в поле вставили весь адрес хука — так тоже можно
     return f"{settings.probe_base_url.rstrip('/')}/api/hook/{token}"
 
 

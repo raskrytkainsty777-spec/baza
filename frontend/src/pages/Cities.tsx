@@ -4,7 +4,7 @@ import { Badge, Button, Code, Group, NumberInput, Paper, PasswordInput, Select, 
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { City, Kpi, KpiRow, dt, n, useCities } from "../ui";
 
 export function Cities() {
@@ -146,8 +146,16 @@ export function CityPage() {
             <TextInput type="date" label="Комментарии с даты" value={pf.date_from} onChange={(e) => setPf({ ...pf, date_from: e.currentTarget.value })} />
             <TextInput type="date" label="по дату" value={pf.date_to} onChange={(e) => setPf({ ...pf, date_to: e.currentTarget.value })} mt="xs" />
             <NumberInput label="Не больше, шт" placeholder="все" value={pf.limit === "" ? "" : Number(pf.limit)} onChange={(v) => setPf({ ...pf, limit: v === "" ? "" : String(v) })} min={1} mt="xs" />
-            <Button mt="sm" loading={send.isPending} onClick={() => send.mutate()}>Отдать непробитых</Button>
-            <Text size="xs" c="dimmed" mt="xs">Пустые даты — все непробитые. Номер уже есть в базе — платный запрос не тратится. В режиме «авто» всё новое уходит само.</Text>
+            <Group mt="sm" gap="xs">
+              <Button loading={send.isPending} onClick={() => send.mutate()}>Отдать непробитых</Button>
+              <Button variant="light" onClick={async () => {
+                const q = new URLSearchParams(); if (pf.date_from) q.set("date_from", pf.date_from); if (pf.date_to) q.set("date_to", pf.date_to);
+                const res = await fetch(`/api/ops/cities/${id}/probed.csv?${q}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                if (!res.ok) { notifications.show({ color: "red", message: `Не удалось скачать: ${res.status}` }); return; }
+                const blob = await res.blob(); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `probed_${c.name}.csv`; a.click();
+              }}>Скачать с номером · {n(ps?.with_phone || 0)}</Button>
+            </Group>
+            <Text size="xs" c="dimmed" mt="xs">Пустые даты — все непробитые. Номер уже есть в базе — платный запрос не тратится. В режиме «авто» всё новое уходит само. Без CRM пробитые копятся здесь — забирайте файлом, даты те же.</Text>
           </div>
         </Group>
       </Paper>
@@ -189,7 +197,7 @@ export function CityPage() {
               <Select label="Режим" value={f.probe_mode || "manual"} onChange={(v) => set("probe_mode", v)} data={[{ value: "manual", label: "вручную — по датам" }, { value: "auto", label: "авто — всех новых сразу" }]} />
               <Switch label="Пробив включён" mt={28} checked={!!f.probe_enabled} onChange={(e) => set("probe_enabled", e.currentTarget.checked)} />
             </Group>
-            <PasswordInput label="Токен задачи на сервисе пробива" placeholder={c.probe_hook_token_set ? "задан — введите, чтобы заменить" : "из вкладки Задачи → 🔗 на старом сервере"} value={f.probe_hook_token || ""} onChange={(e) => set("probe_hook_token", e.currentTarget.value)} mt="xs" />
+            <PasswordInput label="Токен или полный адрес хука задачи на сервисе пробива" placeholder={c.probe_hook_token_set ? "задан — введите, чтобы заменить" : "токен или http://…/api/hook/токен"} value={f.probe_hook_token || ""} onChange={(e) => set("probe_hook_token", e.currentTarget.value)} mt="xs" />
             <Text size="xs" c="dimmed" mt="xs">На пробив уходит вся строка: логин, город, комментарий, дата, ссылка на пост, разбор поста, lead_id в <Code>ref</Code>. Постбек с номером сервис пробива шлёт на <Code>{base}/api/probe/callback</Code></Text>
           </Paper>
           <Paper>

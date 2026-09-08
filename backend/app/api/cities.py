@@ -151,7 +151,8 @@ async def patch_city(city_id: int, body: CityPatch, db: AsyncSession = Depends(g
     city = await db.get(LgCity, city_id)
     if not city:
         raise HTTPException(404, "Город не найден")
-    data = body.model_dump(exclude_unset=True)
+    data = {k: v for k, v in body.model_dump(exclude_unset=True).items()
+            if v is not None or k in ("crm_webhook_url", "crm_secret", "probe_hook_token")}
     if "probe_mode" in data and data["probe_mode"] not in ("manual", "auto"):
         raise HTTPException(400, "probe_mode: manual | auto")
     if "send_mode" in data and data["send_mode"] not in ("manual", "auto"):

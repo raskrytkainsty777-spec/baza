@@ -114,6 +114,45 @@ async def probe_summary(city_id: int, db: AsyncSession = Depends(get_db)):
             "unprobed_by_day": [{"day": d.isoformat() if d else None, "count": n} for d, n in days]}
 
 
+@router.get("/cities/{city_id}/probed.csv")
+async def probed_csv(city_id: int, date_from: str | None = None, date_to: str | None = None,
+                     db: AsyncSession = Depends(get_db)):
+    """Пробитые лиды города файлом — когда CRM не подключена, результат забирают отсюда.
+    Даты — по комментарию. Колонки те же, что уходят в CRM."""
+    import csv
+    import io
+    from datetime import datetime, timedelta
+    from fastapi.responses import StreamingResponse
+    from ..models import IgAccount, LgComment, LgPost
+    from ..services.outbound import MSK_TZ
+    city = await db.get(LgCity, city_id)
+    if not city:
+        raise HTTPException(404, "Город не найден")
+    stmt = (select(LgLead, LgComment, LgPost, IgAccount.username)
+            .join(LgComment, LgComment.id == LgLead.comment_id).join(LgPost, LgPost.id == LgLead.post_id)
+            .join(IgAccount, IgAccount.id == LgLead.account_id)
+            .where(LgLead.city_id == city_id, LgLead.phone.isnot(None)))
+    if date_from:
+        stmt = stmt.where(LgComment.written_at >= datetime.fromisoformat(date_from).replace(tzinfo=MSK_TZ))
+    if date_to:
+        stmt = stmt.where(LgComment.written_at < datetime.fromisoformat(date_to).replace(tzinfo=MSK_TZ) + timedelta(days=1))
+    rows = (await db.execute(stmt.order_by(LgLead.probed_at.desc().nullslast(), LgLead.id.desc()))).all()
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["lead_id", "телефон", "откуда номер", "логин", "город", "комментарий", "дата комментария",
+                "на что привлёкся", "предложение", "крючок", "категория", "призыв", "кодовое слово", "ссылка на пост",
+                "дата поста", "пробит", "статус CRM"])
+    for lead, c, p, username in rows:
+        w.writerow([lead.id, lead.phone, lead.phone_from or "", username, city.name, (c.text or "").replace("\n", " "),
+                    c.written_at.astimezone(MSK_TZ).strftime("%d.%m.%Y %H:%M") if c.written_at else "",
+                    p.offer_text or "", p.offer or "", p.hook or "", p.category or "", p.cta_type or "", p.code_word or "",
+                    p.url or "", p.published_at.astimezone(MSK_TZ).strftime("%d.%m.%Y") if p.published_at else "",
+                    lead.probed_at.astimezone(MSK_TZ).strftime("%d.%m.%Y %H:%M") if lead.probed_at else "", lead.crm_status or ""])
+    data = ("\ufeff" + buf.getvalue()).encode("utf-8")
+    return StreamingResponse(iter([data]), media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename=probed_{city_id}.csv"})
+
+
 @router.post("/cities/{city_id}/probe")
 async def probe(city_id: int, body: ProbeRequest, db: AsyncSession = Depends(get_db)):
     """Отдать на пробив: по списку лидов или по датам комментария. Ставит probe_status=manual,
