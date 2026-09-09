@@ -306,6 +306,88 @@ async def bulk(body: BulkIn, c: CabClient = Depends(require_client), db: AsyncSe
 
 # ── компании ─────────────────────────────────────────────────────────────────
 
+class StatusCheckIn(BaseModel):
+    text: str
+
+
+class StatusApplyIn(BaseModel):
+    phones: list[str]
+    status: str
+
+
+STATUS_LABEL = {"lead": "лид", "qual": "квал-лид", "unsuccessful": "неуспешный"}
+
+
+async def _phone_verdicts(db: AsyncSession, c: CabClient, raw_lines: list[str]) -> tuple[list[dict], dict]:
+    """Номера построчно → нормализация и проверка по купленным контактам клиента.
+    ok — можно ставить статус; has_status — статус уже был, повторно нельзя;
+    not_found — контакт не покупали; bad — не номер; dup — повтор в самом списке."""
+    seen: set[str] = set()
+    items: list[dict] = []
+    for line in raw_lines:
+        raw = line.strip()
+        if not raw:
+            continue
+        phone = norm_phone(raw)
+        if not phone:
+            items.append({"input": raw[:40], "phone": None, "state": "bad"})
+            continue
+        if phone in seen:
+            items.append({"input": raw[:40], "phone": phone, "state": "dup"})
+            continue
+        seen.add(phone)
+        items.append({"input": raw[:40], "phone": phone, "state": "ok"})
+    phones = [x["phone"] for x in items if x["state"] == "ok"]
+    known: dict[str, str | None] = {}
+    if phones:
+        rows = (await db.execute(
+            select(CabContact.phone, func.max(CabContact.hook_status))
+            .where(CabContact.client_id == c.id, CabContact.phone.in_(phones)).group_by(CabContact.phone))).all()
+        known = {p: st for p, st in rows}
+    for x in items:
+        if x["state"] != "ok":
+            continue
+        if x["phone"] not in known:
+            x["state"] = "not_found"
+        elif known[x["phone"]]:
+            x["state"], x["status"] = "has_status", known[x["phone"]]
+    counts: dict[str, int] = {}
+    for x in items:
+        counts[x["state"]] = counts.get(x["state"], 0) + 1
+    return items, counts
+
+
+@router.post("/statuses/check")
+async def statuses_check(body: StatusCheckIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    items, counts = await _phone_verdicts(db, c, (body.text or "").replace(",", "\n").splitlines())
+    return {"items": items[:2000], "counts": counts,
+            "ready": [x["phone"] for x in items if x["state"] == "ok"]}
+
+
+@router.post("/statuses/apply")
+async def statuses_apply(body: StatusApplyIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    status = STATUS_MAP.get((body.status or "").strip().lower())
+    if status not in ("lead", "qual", "unsuccessful"):
+        raise HTTPException(400, "status: lead | qual | unsuccessful")
+    items, _ = await _phone_verdicts(db, c, body.phones or [])
+    ready = [x["phone"] for x in items if x["state"] == "ok"]
+    skipped = [x["phone"] for x in items if x["state"] in ("has_status", "not_found")]
+    if not ready:
+        raise HTTPException(400, "Нечего проставлять: номера без статуса среди купленных контактов не найдены")
+    res = await db.execute(update(CabContact)
+                           .where(CabContact.client_id == c.id, CabContact.phone.in_(ready),
+                                  CabContact.hook_status.is_(None))
+                           .values(hook_status=status, hook_status_at=utcnow()))
+    for phone in ready:
+        db.add(CabInbox(client_id=c.id, raw={"phone": phone, "status": status, "source": "cabinet_manual"},
+                        phone=phone, status=status, state="done", processed_at=utcnow()))
+    await log_event(db, "cab.status_manual",
+                    f"Клиент {c.login}: вручную проставил «{STATUS_LABEL[status]}» на {len(ready)} контактов",
+                    entity="cab_client", entity_id=c.id)
+    await db.commit()
+    return {"updated": res.rowcount, "status": status, "skipped": len(skipped)}
+
+
 @router.get("/companies")
 async def companies(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
     src = (select(CabSource.company_id, func.count().label("sources"))
