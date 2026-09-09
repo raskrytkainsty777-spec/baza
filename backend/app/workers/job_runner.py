@@ -225,8 +225,8 @@ async def _start_queued(db: AsyncSession) -> None:
         for job in queued:
             if job.state != "queued":
                 continue
-            # очередь на стороне parser.im считаем по пулам: застрявший f1 не должен останавливать посты
-            if (_remote_queued_filter if job.kind == "filter" else _remote_queued):
+            # очередь parser.im держит только парсинг; f1 отдаём им всегда — свою очередь они ведут сами
+            if job.kind != "filter" and _remote_queued:
                 continue
             if job.kind in ("posts_intake", "posts_monitor") and not collecting:
                 continue
@@ -234,8 +234,7 @@ async def _start_queued(db: AsyncSession) -> None:
                 continue
             need = job.lines or 1
             if job.kind == "filter":
-                if busy_filter + need > filter_lines:
-                    continue
+                pass   # фильтр: без лимита у нас — parser.im выполняет f1 по очереди сам (решение заказчика 09.09)
             else:
                 if busy + need > max_lines:
                     continue
