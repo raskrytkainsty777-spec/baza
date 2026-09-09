@@ -24,19 +24,20 @@ POLL = 10
 MAX_ATTEMPTS = 10
 FIELDS = [
     ("operator", "Оператор"), ("source_phone", "Источник"), ("phone", "Контакт"), ("bought_at", "Дата выгрузки"),
-    ("supplier_label", "Поставщик"), ("company", "Компания"), ("region", "Регион"), ("lf_status", "Статус LF"),
+    ("supplier_label", "Поставщик"), ("company", "Компания"), ("group", "Группа"), ("region", "Регион"),
+    ("lf_status", "Статус LF"),
 ]
 FIELD_KEYS = [k for k, _ in FIELDS]
 FIELD_LABELS = dict(FIELDS)
 DEFAULT_COLUMNS = ["operator", "source_phone", "phone", "bought_at"]
 
 
-def contact_payload(x: CabContact, company: str | None) -> dict:
+def contact_payload(x: CabContact, company: str | None, group: str | None = None) -> dict:
     src_phone = (x.source_tag or "").split("_")[1] if x.source_tag and "_" in x.source_tag else ""
     return {
         "phone": x.phone, "operator": x.operator or "", "region": x.region or "",
         "supplier": x.supplier or "", "supplier_label": SUPPLIERS.get(x.supplier or "", x.supplier or ""),
-        "source_phone": src_phone, "company": company or "",
+        "source_phone": src_phone, "company": company or "", "group": group or "",
         "bought_at": x.bought_at.astimezone(MSK).strftime("%d.%m.%Y %H:%M") if x.bought_at else "",
         "lf_status": "повтор" if x.lf_status == "repeat" else "новая",
     }
@@ -44,7 +45,7 @@ def contact_payload(x: CabContact, company: str | None) -> dict:
 
 def test_payload() -> dict:
     return {"phone": "79999999999", "operator": "тест", "region": "тест", "supplier": "B222", "supplier_label": "тест",
-            "source_phone": "тест источник", "company": "тест", "bought_at": utcnow().astimezone(MSK).strftime("%d.%m.%Y %H:%M"),
+            "source_phone": "тест источник", "company": "тест", "group": "тест", "bought_at": utcnow().astimezone(MSK).strftime("%d.%m.%Y %H:%M"),
             "lf_status": "новая"}
 
 
@@ -99,11 +100,15 @@ async def _pass(db: AsyncSession) -> None:
             continue
         contacts = {x.id: x for x in (await db.execute(select(CabContact).where(
             CabContact.id.in_([r.contact_id for r in items if r.contact_id])))).scalars().all()}
-        companies = dict((await db.execute(select(CabCompany.id, CabCompany.name).where(CabCompany.client_id == integ.client_id))).all())
+        comp_rows = (await db.execute(select(CabCompany.id, CabCompany.name, CabCompany.group_name)
+                                      .where(CabCompany.client_id == integ.client_id))).all()
+        companies = {i: nm for i, nm, _ in comp_rows}
+        groups = {i: g for i, _, g in comp_rows}
         payloads = {}
         for r in items:
             x = contacts.get(r.contact_id)
-            payloads[r.id] = r.payload if (r.payload and not r.contact_id) else (contact_payload(x, companies.get(x.company_id)) if x else None)
+            payloads[r.id] = (r.payload if (r.payload and not r.contact_id)
+                              else (contact_payload(x, companies.get(x.company_id), groups.get(x.company_id)) if x else None))
         try:
             if integ.kind == "gsheets":
                 ok_rows = [r for r in items if payloads.get(r.id)]

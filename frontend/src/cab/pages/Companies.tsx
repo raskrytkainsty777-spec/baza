@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Group, Modal, Paper, Select, Table, Text, Textarea, Title } from "@mantine/core";
+import { Autocomplete, Button, Checkbox, Group, Modal, Paper, Select, Table, Text, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -81,33 +81,70 @@ function AddStatus({ opened, onClose, onDone }: { opened: boolean; onClose: () =
 export default function Companies() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState<number[]>([]);
+  const [group, setGroup] = useState("");
   const q = useQuery({ queryKey: ["cab-companies"], queryFn: () => cabApi("/companies"), refetchInterval: 60_000 });
   const items: any[] = q.data?.items || [];
   const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
+  const bust = () => { qc.invalidateQueries({ queryKey: ["cab-companies"] }); qc.invalidateQueries({ queryKey: ["cab-sources"] }); };
+  const bulk = useMutation({
+    mutationFn: (b: any) => cabApi("/companies/bulk", { method: "POST", body: { ids: sel, ...b } }),
+    onSuccess: (r: any, b: any) => {
+      setSel([]); bust();
+      notifications.show({ color: "green", message: b.action === "group"
+        ? (r.group ? `Группа «${r.group}» проставлена ${r.updated} компаниям` : `Группа снята у ${r.updated} компаний`)
+        : `Источников ${b.action === "enable_sources" ? "включено" : "выключено"}: ${r.updated} — уйдёт в Leads Factory в течение минуты` });
+    },
+    onError: (e: any) => notifications.show({ color: "red", message: e.message }),
+  });
+  const askDisable = () => {
+    const total = items.filter((c) => sel.includes(c.id)).reduce((a, c) => a + (c.sources || 0), 0);
+    if (window.confirm(`Выключить все источники выбранных компаний (${total} шт)? Закупка по ним остановится.`)) bulk.mutate({ action: "disable_sources" });
+  };
   return (
     <>
       <Group justify="space-between" mb={4}>
         <Title order={2}>Компании</Title>
         <Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Добавить статус</Button>
       </Group>
-      <AddStatus opened={open} onClose={() => setOpen(false)} onDone={() => qc.invalidateQueries({ queryKey: ["cab-companies"] })} />
-      <Text c="dimmed" size="sm" mb="md">откуда взяты номера-источники · статусы приходят по вебхуку или ставятся вручную кнопкой выше · стоимость = (куплено × цена покупки + куплено × цена обработки) / лидов; цены — в Настройках ({money(q.data?.contact_cost)} + {money(q.data?.handling_cost)})</Text>
+      <AddStatus opened={open} onClose={() => setOpen(false)} onDone={bust} />
+      <Text c="dimmed" size="sm" mb="md">откуда взяты номера-источники · статусы приходят по вебхуку или ставятся вручную кнопкой выше · группа уходит в выгрузку контактов, включите колонку в Интеграциях · стоимость = (куплено × цена покупки + куплено × цена обработки) / лидов; цены — в Настройках ({money(q.data?.contact_cost)} + {money(q.data?.handling_cost)})</Text>
+      {!!sel.length && (
+        <Paper p="xs" mb="xs" withBorder>
+          <Group gap="xs" align="flex-end">
+            <Text size="sm" fw={600}>Выбрано: {sel.length}</Text>
+            <Button size="xs" variant="light" color="red" loading={bulk.isPending} onClick={askDisable}>выключить все источники</Button>
+            <Button size="xs" variant="light" color="green" loading={bulk.isPending} onClick={() => bulk.mutate({ action: "enable_sources" })}>включить</Button>
+            <Group gap={4} align="flex-end">
+              <Autocomplete size="xs" w={220} label="группа" placeholder="название или выберите" data={q.data?.groups || []} value={group} onChange={setGroup} />
+              <Button size="xs" variant="light" loading={bulk.isPending} onClick={() => bulk.mutate({ action: "group", group })}>задать</Button>
+              <Button size="xs" variant="subtle" loading={bulk.isPending} onClick={() => bulk.mutate({ action: "group", group: "" })}>убрать</Button>
+            </Group>
+            <Button size="xs" variant="subtle" onClick={() => setSel([])}>снять выбор</Button>
+          </Group>
+        </Paper>
+      )}
+
       <Paper p="xs" style={{ overflowX: "auto" }}>
         <Table fz="xs" verticalSpacing={5} className="compact">
           <Table.Thead><Table.Tr>
-            <Table.Th>Компания</Table.Th><Table.Th ta="right">Источников</Table.Th><Table.Th ta="right">Куплено</Table.Th><Table.Th ta="right">Лидов</Table.Th><Table.Th ta="right">Неуспешных</Table.Th><Table.Th ta="right">Квал-лидов</Table.Th><Table.Th ta="right">Конв. лид</Table.Th><Table.Th ta="right">Конв. квал</Table.Th><Table.Th ta="right">Потрачено</Table.Th><Table.Th ta="right">₽ / лид</Table.Th><Table.Th ta="right">₽ / квал</Table.Th>
+            <Table.Th w={28}><Checkbox size="xs" checked={!!items.length && sel.length === items.length} indeterminate={!!sel.length && sel.length < items.length}
+              onChange={(e) => setSel(e.currentTarget.checked ? items.map((c) => c.id) : [])} /></Table.Th>
+            <Table.Th>Компания</Table.Th><Table.Th>Группа</Table.Th><Table.Th ta="right">Источников</Table.Th><Table.Th ta="right">Куплено</Table.Th><Table.Th ta="right">Лидов</Table.Th><Table.Th ta="right">Неуспешных</Table.Th><Table.Th ta="right">Квал-лидов</Table.Th><Table.Th ta="right">Конв. лид</Table.Th><Table.Th ta="right">Конв. квал</Table.Th><Table.Th ta="right">Потрачено</Table.Th><Table.Th ta="right">₽ / лид</Table.Th><Table.Th ta="right">₽ / квал</Table.Th>
           </Table.Tr></Table.Thead>
           <Table.Tbody>
             {items.map((c) => (
               <Table.Tr key={c.id}>
+                <Table.Td><Checkbox size="xs" checked={sel.includes(c.id)} onChange={(e) => setSel(e.currentTarget.checked ? [...sel, c.id] : sel.filter((x) => x !== c.id))} /></Table.Td>
                 <Table.Td>{c.name}</Table.Td>
+                <Table.Td>{c.group || <Text span c="dimmed">—</Text>}</Table.Td>
                 <Table.Td className="num" ta="right">{n(c.sources)}</Table.Td><Table.Td className="num" ta="right">{n(c.contacts)}</Table.Td>
                 <Table.Td className="num" ta="right">{n(c.leads)}</Table.Td><Table.Td className="num" ta="right">{n(c.unsuccessful)}</Table.Td><Table.Td className="num" ta="right">{n(c.quals)}</Table.Td>
                 <Table.Td className="num" ta="right">{pct(c.conversion_lead)}</Table.Td><Table.Td className="num" ta="right">{pct(c.conversion_qual)}</Table.Td>
                 <Table.Td className="num" ta="right">{money(c.spend)}</Table.Td><Table.Td className="num" ta="right">{money(c.cost_per_lead)}</Table.Td><Table.Td className="num" ta="right">{money(c.cost_per_qual)}</Table.Td>
               </Table.Tr>
             ))}
-            {!items.length && <Table.Tr><Table.Td colSpan={11}><Text c="dimmed" ta="center">компаний нет — они появляются из строк «номер;компания» при добавлении источников</Text></Table.Td></Table.Tr>}
+            {!items.length && <Table.Tr><Table.Td colSpan={13}><Text c="dimmed" ta="center">компаний нет — они появляются из строк «номер;компания» при добавлении источников</Text></Table.Td></Table.Tr>}
           </Table.Tbody>
         </Table>
       </Paper>

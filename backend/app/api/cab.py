@@ -408,14 +408,54 @@ async def companies(c: CabClient = Depends(require_client), db: AsyncSession = D
         contacts, leads, quals, uns = contacts or 0, leads or 0, quals or 0, uns or 0
         spend = contacts * per_contact
         items.append({
-            "id": comp.id, "name": comp.name, "sources": sources or 0, "contacts": contacts,
+            "id": comp.id, "name": comp.name, "group": comp.group_name, "sources": sources or 0, "contacts": contacts,
             "leads": leads, "quals": quals, "unsuccessful": uns,
             "conversion_lead": round(leads / contacts * 100, 1) if contacts else None,
             "conversion_qual": round(quals / contacts * 100, 1) if contacts else None,
             "spend": round(spend, 2), "cost_per_lead": round(spend / leads, 2) if leads else None,
             "cost_per_qual": round(spend / quals, 2) if quals else None,
         })
-    return {"items": items, "contact_cost": float(c.contact_cost or 0), "handling_cost": float(c.handling_cost or 0)}
+    groups = sorted({x["group"] for x in items if x["group"]})
+    return {"items": items, "groups": groups,
+            "contact_cost": float(c.contact_cost or 0), "handling_cost": float(c.handling_cost or 0)}
+
+
+class CompanyBulkIn(BaseModel):
+    ids: list[int]
+    action: str                  # disable_sources | enable_sources | group
+    group: str | None = None     # для action=group; пусто — убрать группу
+
+
+@router.post("/companies/bulk")
+async def companies_bulk(body: CompanyBulkIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    """Массово по компаниям: выключить/включить все их источники или проставить группу."""
+    comps = (await db.execute(select(CabCompany).where(
+        CabCompany.client_id == c.id, CabCompany.id.in_(body.ids)))).scalars().all()
+    if not comps:
+        raise HTTPException(404, "Компании не найдены")
+    ids = [x.id for x in comps]
+    names = ", ".join(x.name for x in comps[:3]) + (f" +{len(comps) - 3}" if len(comps) > 3 else "")
+    if body.action in ("disable_sources", "enable_sources"):
+        on = body.action == "enable_sources"
+        res = await db.execute(update(CabSource)
+                               .where(CabSource.client_id == c.id, CabSource.company_id.in_(ids),
+                                      CabSource.enabled_by_user.is_(not on))
+                               .values(enabled_by_user=on, lf_dirty=True))
+        await log_event(db, "cab.company_bulk",
+                        f"Клиент {c.login}: {'включил' if on else 'выключил'} источники компаний {names} — {res.rowcount} шт",
+                        entity="cab_client", entity_id=c.id)
+        await db.commit()
+        return {"updated": res.rowcount, "action": body.action}
+    if body.action == "group":
+        group = (body.group or "").strip()[:120] or None
+        for x in comps:
+            x.group_name = group
+        await log_event(db, "cab.company_bulk",
+                        f"Клиент {c.login}: группа «{group or '—'}» у компаний {names}",
+                        entity="cab_client", entity_id=c.id)
+        await db.commit()
+        return {"updated": len(comps), "group": group}
+    raise HTTPException(400, "action: disable_sources | enable_sources | group")
 
 
 # ── база контактов ───────────────────────────────────────────────────────────

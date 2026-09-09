@@ -71,6 +71,7 @@ class CabCompany(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("cab_clients.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
+    group_name: Mapped[str | None] = mapped_column(String(120))   # метка клиента: уходит в выгрузку контактов
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
