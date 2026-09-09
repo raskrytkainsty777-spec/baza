@@ -308,6 +308,7 @@ async def bulk(body: BulkIn, c: CabClient = Depends(require_client), db: AsyncSe
 
 class StatusCheckIn(BaseModel):
     text: str
+    status: str | None = None    # какой статус собираются ставить: от него зависит вердикт
 
 
 class StatusApplyIn(BaseModel):
@@ -316,12 +317,16 @@ class StatusApplyIn(BaseModel):
 
 
 STATUS_LABEL = {"lead": "лид", "qual": "квал-лид", "unsuccessful": "неуспешный"}
+# лестница: контакт можно повысить (неуспешный → лид → квал), при этом прежний статус снимается.
+# Понижение и повтор того же статуса вручную запрещены — исправляет только вебхук CRM.
+STATUS_RANK = {"unsuccessful": 1, "lead": 2, "qual": 3}
 
 
-async def _phone_verdicts(db: AsyncSession, c: CabClient, raw_lines: list[str]) -> tuple[list[dict], dict]:
+async def _phone_verdicts(db: AsyncSession, c: CabClient, raw_lines: list[str],
+                          target: str | None = None) -> tuple[list[dict], dict]:
     """Номера построчно → нормализация и проверка по купленным контактам клиента.
-    ok — можно ставить статус; has_status — статус уже был, повторно нельзя;
-    not_found — контакт не покупали; bad — не номер; dup — повтор в самом списке."""
+    ok — статуса нет; upgrade — стоит более низкий, можно повысить; has_status — тот же статус;
+    lower — стоит более высокий, понижать нельзя; not_found — не покупали; bad — не номер; dup — повтор."""
     seen: set[str] = set()
     items: list[dict] = []
     for line in raw_lines:
@@ -344,13 +349,24 @@ async def _phone_verdicts(db: AsyncSession, c: CabClient, raw_lines: list[str]) 
             select(CabContact.phone, func.max(CabContact.hook_status))
             .where(CabContact.client_id == c.id, CabContact.phone.in_(phones)).group_by(CabContact.phone))).all()
         known = {p: st for p, st in rows}
+    new_rank = STATUS_RANK.get(target or "", 0)
     for x in items:
         if x["state"] != "ok":
             continue
         if x["phone"] not in known:
             x["state"] = "not_found"
-        elif known[x["phone"]]:
-            x["state"], x["status"] = "has_status", known[x["phone"]]
+            continue
+        cur = known[x["phone"]]
+        if not cur:
+            continue
+        x["status"] = cur
+        cur_rank = STATUS_RANK.get(cur, 0)
+        if not new_rank or new_rank == cur_rank:
+            x["state"] = "has_status"
+        elif new_rank > cur_rank:
+            x["state"] = "upgrade"
+        else:
+            x["state"] = "lower"
     counts: dict[str, int] = {}
     for x in items:
         counts[x["state"]] = counts.get(x["state"], 0) + 1
@@ -359,9 +375,10 @@ async def _phone_verdicts(db: AsyncSession, c: CabClient, raw_lines: list[str]) 
 
 @router.post("/statuses/check")
 async def statuses_check(body: StatusCheckIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
-    items, counts = await _phone_verdicts(db, c, (body.text or "").replace(",", "\n").splitlines())
-    return {"items": items[:2000], "counts": counts,
-            "ready": [x["phone"] for x in items if x["state"] == "ok"]}
+    target = STATUS_MAP.get((body.status or "").strip().lower())
+    items, counts = await _phone_verdicts(db, c, (body.text or "").replace(",", "\n").splitlines(), target)
+    return {"items": items[:2000], "counts": counts, "status": target,
+            "ready": [x["phone"] for x in items if x["state"] in ("ok", "upgrade")]}
 
 
 @router.post("/statuses/apply")
@@ -369,23 +386,26 @@ async def statuses_apply(body: StatusApplyIn, c: CabClient = Depends(require_cli
     status = STATUS_MAP.get((body.status or "").strip().lower())
     if status not in ("lead", "qual", "unsuccessful"):
         raise HTTPException(400, "status: lead | qual | unsuccessful")
-    items, _ = await _phone_verdicts(db, c, body.phones or [])
-    ready = [x["phone"] for x in items if x["state"] == "ok"]
-    skipped = [x["phone"] for x in items if x["state"] in ("has_status", "not_found")]
+    items, _ = await _phone_verdicts(db, c, body.phones or [], status)
+    ready = [x["phone"] for x in items if x["state"] in ("ok", "upgrade")]
+    upgraded = sum(1 for x in items if x["state"] == "upgrade")
+    skipped = [x["phone"] for x in items if x["state"] in ("has_status", "not_found", "lower")]
     if not ready:
-        raise HTTPException(400, "Нечего проставлять: номера без статуса среди купленных контактов не найдены")
+        raise HTTPException(400, "Нечего проставлять: у этих номеров такой статус уже стоит либо стоит более высокий")
+    lower = [s for s, r in STATUS_RANK.items() if r < STATUS_RANK[status]]
     res = await db.execute(update(CabContact)
                            .where(CabContact.client_id == c.id, CabContact.phone.in_(ready),
-                                  CabContact.hook_status.is_(None))
+                                  or_(CabContact.hook_status.is_(None), CabContact.hook_status.in_(lower)))
                            .values(hook_status=status, hook_status_at=utcnow()))
     for phone in ready:
         db.add(CabInbox(client_id=c.id, raw={"phone": phone, "status": status, "source": "cabinet_manual"},
                         phone=phone, status=status, state="done", processed_at=utcnow()))
     await log_event(db, "cab.status_manual",
-                    f"Клиент {c.login}: вручную проставил «{STATUS_LABEL[status]}» на {len(ready)} контактов",
+                    f"Клиент {c.login}: вручную проставил «{STATUS_LABEL[status]}» на {len(ready)} контактов"
+                    + (f", из них повышено {upgraded}" if upgraded else ""),
                     entity="cab_client", entity_id=c.id)
     await db.commit()
-    return {"updated": res.rowcount, "status": status, "skipped": len(skipped)}
+    return {"updated": res.rowcount, "status": status, "skipped": len(skipped), "upgraded": upgraded}
 
 
 @router.get("/companies")

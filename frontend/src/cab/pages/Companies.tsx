@@ -6,11 +6,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cabApi } from "../api";
 import { money, n } from "../../ui";
 
+const RU: Record<string, string> = { lead: "лид", qual: "квал-лид", unsuccessful: "неуспешный" };
 const STATE_LABEL: Record<string, string> = {
-  ok: "можно проставить", has_status: "статус уже стоит", not_found: "не покупали этот контакт",
+  ok: "можно проставить", upgrade: "повысим", has_status: "такой статус уже стоит",
+  lower: "стоит более высокий — понижать нельзя", not_found: "не покупали этот контакт",
   bad: "не похоже на номер", dup: "повтор в списке",
 };
-const STATE_COLOR: Record<string, string> = { ok: "green.8", has_status: "orange.8", not_found: "red.8", bad: "red.8", dup: "dimmed" };
+const STATE_COLOR: Record<string, string> = { ok: "green.8", upgrade: "green.8", has_status: "orange.8", lower: "orange.8", not_found: "red.8", bad: "red.8", dup: "dimmed" };
 const STATUS_OPTS = [
   { value: "lead", label: "лид" }, { value: "qual", label: "квал-лид" }, { value: "unsuccessful", label: "неуспешный" },
 ];
@@ -21,13 +23,13 @@ function AddStatus({ opened, onClose, onDone }: { opened: boolean; onClose: () =
   const [res, setRes] = useState<any>(null);
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
   const check = useMutation({
-    mutationFn: () => cabApi("/statuses/check", { method: "POST", body: { text } }),
+    mutationFn: () => cabApi("/statuses/check", { method: "POST", body: { text, status } }),
     onSuccess: setRes, onError: err,
   });
   const apply = useMutation({
     mutationFn: () => cabApi("/statuses/apply", { method: "POST", body: { phones: res.ready, status } }),
     onSuccess: (r: any) => {
-      notifications.show({ color: "green", message: `Проставлено на ${r.updated} контактов` });
+      notifications.show({ color: "green", message: `Проставлено на ${r.updated} контактов` + (r.upgraded ? `, из них повышено с прежнего статуса ${r.upgraded}` : "") });
       setText(""); setRes(null); onDone(); onClose();
     },
     onError: err,
@@ -36,17 +38,20 @@ function AddStatus({ opened, onClose, onDone }: { opened: boolean; onClose: () =
   const counts = res?.counts || {};
   return (
     <Modal opened={opened} onClose={close} size="lg" title="Добавить статус вручную">
+      <Select label="Статус" description="неуспешный → лид → квал-лид: повысить можно, понизить нет" w={260} mb="sm"
+        value={status} onChange={(v) => { setStatus(v); setRes(null); }} data={STATUS_OPTS} />
       <Textarea label="Номера — каждый с новой строки" description="+7, 8, скобки и пробелы убираются сами" autosize minRows={6} maxRows={14}
         placeholder={"+7 (999) 123-45-67\n89991234568\n79991234569"} value={text}
         onChange={(e) => { setText(e.currentTarget.value); setRes(null); }} />
       {!res && (
-        <Button mt="sm" loading={check.isPending} disabled={!text.trim()} onClick={() => check.mutate()}>Проверить номера</Button>
+        <Button mt="sm" loading={check.isPending} disabled={!text.trim() || !status} onClick={() => check.mutate()}>Проверить номера</Button>
       )}
       {res && (
         <>
           <Group gap="md" mt="sm">
-            <Text size="sm" fw={600} c="green.8">можно проставить: {n(counts.ok || 0)}</Text>
-            {!!counts.has_status && <Text size="sm" c="orange.8">статус уже стоит: {n(counts.has_status)}</Text>}
+            <Text size="sm" fw={600} c="green.8">поставим «{RU[status || ""]}»: {n((counts.ok || 0) + (counts.upgrade || 0))}{counts.upgrade ? ` (из них повысим ${n(counts.upgrade)})` : ""}</Text>
+            {!!counts.has_status && <Text size="sm" c="orange.8">такой статус уже стоит: {n(counts.has_status)}</Text>}
+            {!!counts.lower && <Text size="sm" c="orange.8">стоит более высокий: {n(counts.lower)}</Text>}
             {!!counts.not_found && <Text size="sm" c="red.8">не покупали: {n(counts.not_found)}</Text>}
             {!!(counts.bad || counts.dup) && <Text size="sm" c="dimmed">повторы и мусор: {n((counts.bad || 0) + (counts.dup || 0))}</Text>}
           </Group>
@@ -58,20 +63,19 @@ function AddStatus({ opened, onClose, onDone }: { opened: boolean; onClose: () =
                   <Table.Tr key={i}>
                     <Table.Td className="mono">{x.phone || "—"}</Table.Td>
                     <Table.Td><Text size="xs" c="dimmed">{x.input}</Text></Table.Td>
-                    <Table.Td><Text size="xs" c={STATE_COLOR[x.state]}>{STATE_LABEL[x.state]}{x.status ? ` (${x.status})` : ""}</Text></Table.Td>
+                    <Table.Td><Text size="xs" c={STATE_COLOR[x.state]}>{STATE_LABEL[x.state]}{x.status ? ` · сейчас ${RU[x.status] || x.status}` : ""}</Text></Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
             </Table>
           </Paper>
           <Group mt="md" align="flex-end">
-            <Select w={200} label="Статус" value={status} onChange={setStatus} data={STATUS_OPTS} />
             <Button loading={apply.isPending} disabled={!res.ready?.length || !status} onClick={() => apply.mutate()}>
               Отправить · {n(res.ready?.length || 0)}
             </Button>
             <Button variant="subtle" onClick={() => setRes(null)}>Изменить список</Button>
           </Group>
-          <Text size="xs" c="dimmed" mt="xs">Статус ставится один раз на номер: те, у кого он уже есть, пропускаются. Статистика по компаниям обновится сразу.</Text>
+          <Text size="xs" c="dimmed" mt="xs">У контакта один статус: при повышении прежний снимается, поэтому в статистике он переезжает из лидов в квал-лиды. Статистика обновится сразу.</Text>
         </>
       )}
     </Modal>
