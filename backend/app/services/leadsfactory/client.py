@@ -71,6 +71,11 @@ class LF:
                                  headers={"Authorization": f"Bearer {self.token}"})
         if r.status_code == 401:
             raise LFError("Leads Factory: токен не принят (401)")
+        if r.status_code >= 500:
+            # их шлюз отдаёт 502 с «invalid internal token» — это про ИХ внутренний токен, не про наш
+            if "internal token" in r.text:
+                raise LFError(f"Leads Factory: сбой на их стороне ({r.status_code}, внутренний токен CRM) — наш токен рабочий")
+            raise LFError(f"Leads Factory недоступен ({r.status_code}): {r.text[:200]}")
         if r.status_code >= 400:
             raise LFError(f"Leads Factory {r.status_code}: {r.text[:300]}")
         try:

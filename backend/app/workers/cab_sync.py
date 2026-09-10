@@ -47,22 +47,29 @@ async def run():
 
 
 async def _client_pass(db: AsyncSession, lf: LF, c: CabClient) -> None:
+    """Шаги изолированы: у LF ломается по одному семейству эндпоинтов за раз (10.09.2026 лежал
+    только crm/*), и упавший баланс не должен останавливать приём контактов и отправку источников."""
     now = utcnow()
-    try:
-        await push_sources(db, lf, c)
-        await push_blacklist(db, lf, c)
-        if not c.balance_synced_at or now - c.balance_synced_at >= BALANCE_EVERY:
-            await sync_balance(db, lf, c)
-        if not c.contacts_synced_at or now - c.contacts_synced_at >= CONTACTS_EVERY:
-            await sync_contacts(db, lf, c)
-        await maybe_activate(db, lf, c)
-        c.lf_error = None
-    except LFError as e:
-        c.lf_error = str(e)[:500]
-        log.warning("клиент %s: %s", c.login, e)
-    except Exception as e:   # noqa: BLE001
-        c.lf_error = f"{type(e).__name__}: {e}"[:500]
-        log.exception("клиент %s", c.login)
+    errors: list[str] = []
+
+    async def step(name: str, make_coro) -> None:
+        try:
+            await make_coro()
+        except LFError as e:
+            errors.append(f"{name} — {e}")
+            log.warning("клиент %s, %s: %s", c.login, name, e)
+        except Exception as e:   # noqa: BLE001
+            errors.append(f"{name} — {type(e).__name__}: {e}")
+            log.exception("клиент %s, %s", c.login, name)
+
+    await step("источники", lambda: push_sources(db, lf, c))
+    await step("чёрный список", lambda: push_blacklist(db, lf, c))
+    if not c.balance_synced_at or now - c.balance_synced_at >= BALANCE_EVERY:
+        await step("баланс", lambda: sync_balance(db, lf, c))
+    if not c.contacts_synced_at or now - c.contacts_synced_at >= CONTACTS_EVERY:
+        await step("контакты", lambda: sync_contacts(db, lf, c))
+    await step("включение закупки", lambda: maybe_activate(db, lf, c))
+    c.lf_error = "; ".join(errors)[:500] or None
     await db.commit()
 
 
