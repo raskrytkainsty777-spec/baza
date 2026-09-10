@@ -32,7 +32,7 @@ export default function Base() {
   return (
     <>
       <Group justify="space-between" mb="sm">
-        <div><Title order={2}>База</Title><Text c="dimmed" size="sm">копия заявок Leads Factory по проекту · {n(total)} строк · в среднем {stats.data?.avg_per_day ?? "—"} в день{stats.data?.days_left != null ? ` · баланса хватит на ~${stats.data.days_left} дн` : ""}</Text></div>
+        <div><Title order={2}>База</Title><Text c="dimmed" size="sm">копия заявок LF по проекту · {n(total)} строк · в среднем {stats.data?.avg_per_day ?? "—"} в день{stats.data?.days_left != null ? ` · баланса хватит на ~${stats.data.days_left} дн` : ""}</Text></div>
         <Button size="xs" variant="light" leftSection={<IconDownload size={14} />} onClick={download}>CSV</Button>
       </Group>
       <Group mb="xs" gap={6}>

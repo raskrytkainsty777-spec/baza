@@ -2,7 +2,7 @@
 настройки. Вход — логин и пароль клиента (cab_auth), к админскому API доступа нет.
 
 Изменения источников (лимиты, поставщики, регионы, включение) пишутся у нас и помечаются
-lf_dirty — воркер cab_sync доносит их до Leads Factory в фоне.
+lf_dirty — воркер cab_sync доносит их до LF в фоне.
 """
 import csv
 import io
@@ -187,7 +187,7 @@ async def add_sources(body: SourcesIn, c: CabClient = Depends(require_client), d
         added.append(phone)
     await db.commit()
     return {"added": len(added), "duplicates": dup, "invalid": invalid[:20], "invalid_count": len(invalid),
-            "note": "Источники уходят в Leads Factory в фоне: у каждого появится ID и статус в течение минуты."}
+            "note": "Источники уходят в LF в фоне: у каждого появится ID и статус в течение минуты."}
 
 
 SORTS = {
@@ -265,7 +265,7 @@ async def sources_delete(body: DeleteIn, c: CabClient = Depends(require_client),
             await lf.sources_will_work(lf_ids, False)
             await lf.sources_hide(lf_ids)
         except LFError as e:
-            raise HTTPException(502, f"Leads Factory не ответил: {e}. Источники не удалены, повторите позже")
+            raise HTTPException(502, f"LF не ответил: {e}. Источники не удалены, повторите позже")
         lf_note = f", в LF выключены и скрыты {len(lf_ids)}"
     ids = [s.id for s in rows]
     await db.execute(update(CabContact).where(CabContact.source_id.in_(ids)).values(source_id=None))
@@ -571,7 +571,7 @@ async def blacklist_add(body: BlacklistIn, c: CabClient = Depends(require_client
         have.add(p)
         added += 1
     await db.commit()
-    return {"added": added, "invalid": bad, "note": "Уйдут в Leads Factory в течение минуты"}
+    return {"added": added, "invalid": bad, "note": "Уйдут в LF в течение минуты"}
 
 
 # ── статусы по вебхуку (без входа, по токену клиента) ────────────────────────

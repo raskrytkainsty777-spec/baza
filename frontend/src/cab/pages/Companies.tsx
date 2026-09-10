@@ -97,7 +97,7 @@ export default function Companies() {
       setSel([]); bust();
       notifications.show({ color: "green", message: b.action === "group"
         ? (r.group ? `Группа «${r.group}» проставлена ${r.updated} компаниям` : `Группа снята у ${r.updated} компаний`)
-        : `Источников ${b.action === "enable_sources" ? "включено" : "выключено"}: ${r.updated} — уйдёт в Leads Factory в течение минуты` });
+        : `Источников ${b.action === "enable_sources" ? "включено" : "выключено"}: ${r.updated} — уйдёт в LF в течение минуты` });
     },
     onError: (e: any) => notifications.show({ color: "red", message: e.message }),
   });

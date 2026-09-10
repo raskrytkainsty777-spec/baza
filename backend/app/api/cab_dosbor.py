@@ -372,4 +372,4 @@ async def task_to_purchase(task_id: int, c: CabClient = Depends(require_client),
     found = (await db.execute(select(CabFoundSource).where(CabFoundSource.task_id == task_id, CabFoundSource.source_id.is_(None)))).scalars().all()
     n = await purchase_found(db, c, t, found)
     await db.commit()
-    return {"purchased": n, "note": "Уйдут в Leads Factory в течение минуты"}
+    return {"purchased": n, "note": "Уйдут в LF в течение минуты"}

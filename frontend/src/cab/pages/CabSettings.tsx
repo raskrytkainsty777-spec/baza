@@ -22,7 +22,7 @@ export default function CabSettings() {
   const tg = useQuery({ queryKey: ["cab-telegram"], queryFn: () => cabApi("/integrations/telegram"), refetchInterval: 15_000 });
   const applyLimit = useMutation({
     mutationFn: () => cabApi("/settings/apply-limit", { method: "POST" }),
-    onSuccess: (r: any) => { qc.invalidateQueries({ queryKey: ["cab-sources"] }); notifications.show({ color: "green", message: `Лимит ${r.limit} выставлен ${r.updated} источникам — уходит в Leads Factory` }); },
+    onSuccess: (r: any) => { qc.invalidateQueries({ queryKey: ["cab-sources"] }); notifications.show({ color: "green", message: `Лимит ${r.limit} выставлен ${r.updated} источникам — уходит в LF` }); },
     onError: (e: any) => notifications.show({ color: "red", message: e.message }),
   });
   const tgOff = useMutation({ mutationFn: () => cabApi("/integrations/telegram/disconnect", { method: "POST" }), onSuccess: () => qc.invalidateQueries({ queryKey: ["cab-telegram"] }), onError: (e: any) => notifications.show({ color: "red", message: e.message }) });
@@ -50,7 +50,7 @@ export default function CabSettings() {
               <NumberInput label="Лимит на связку в сутки" description="для новых источников" value={f.limit_default ?? 5} onChange={(v) => setF({ ...f, limit_default: v })} min={0} w={220} />
               <Button variant="light" loading={applyLimit.isPending} onClick={() => applyLimit.mutate()}>Применить ко всем источникам</Button>
             </Group>
-            <Text size="xs" c="dimmed" mt={4}>У уже добавленных источников свой лимит: смените его массовым действием на вкладке «Источники» или этой кнопкой (сначала сохраните настройки). В Leads Factory уходит в течение минуты.</Text>
+            <Text size="xs" c="dimmed" mt={4}>У уже добавленных источников свой лимит: смените его массовым действием на вкладке «Источники» или этой кнопкой (сначала сохраните настройки). В LF уходит в течение минуты.</Text>
           </Paper>
         </Stack>
         <Stack>

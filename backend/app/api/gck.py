@@ -99,7 +99,7 @@ async def create_client(body: ClientCreate, db: AsyncSession = Depends(get_db)):
         await lf.auto_scripts_update(crm_id, limit_autochange=False, default_tags_limit=limit_default)
         steps.append(f"лимит по умолчанию {limit_default}, автоповышение выкл")
     except LFError as e:
-        raise HTTPException(502, f"Leads Factory: {e}. Сделано: {'; '.join(steps) or 'ничего'}")
+        raise HTTPException(502, f"LF: {e}. Сделано: {'; '.join(steps) or 'ничего'}")
     c = CabClient(login=login, password_hash=hash_password(body.password), name=body.name.strip(),
                   lf_crm_id=crm_id, lf_answer_cost=answer_cost, limit_default=limit_default,
                   suppliers_default=list(PHONE_SUPPLIERS), weekdays=[True] * 7,

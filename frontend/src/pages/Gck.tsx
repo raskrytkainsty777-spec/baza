@@ -39,7 +39,7 @@ export default function Gck() {
   return (
     <>
       <Group justify="space-between" mb="md">
-        <div><Title order={2}>ГЦК — генерация целевых клиентов</Title><Text c="dimmed" size="sm">клиент = проект Leads Factory · баланс в контактах = остаток ₽ / цена заявки · поступления вносятся в ЛК LF руками, сюда подтягиваются сами</Text></div>
+        <div><Title order={2}>ГЦК — генерация целевых клиентов</Title><Text c="dimmed" size="sm">клиент = проект LF · баланс в контактах = остаток ₽ / цена заявки · поступления вносятся в ЛК LF руками, сюда подтягиваются сами</Text></div>
         <Button leftSection={<IconPlus size={16} />} onClick={() => setOpen(true)}>Создать клиента</Button>
       </Group>
 
@@ -49,7 +49,7 @@ export default function Gck() {
           <NumberInput label="Лимит на связку по умолчанию" w={220} value={Number(g.gck_limit_default || 5)} onChange={(v) => setG({ ...g, gck_limit_default: String(v) })} min={0} />
           <PasswordInput label="Токен Telegram-бота клиентов" w={320} value={g.cab_telegram_bot_token || ""} onChange={(e) => setG({ ...g, cab_telegram_bot_token: e.currentTarget.value })} className="mono" />
           <Button variant="light" loading={saveG.isPending} onClick={() => saveG.mutate()}>Сохранить</Button>
-          <Text size="xs" c="dimmed">токен Leads Factory — в Настройках → Ключи и связки</Text>
+          <Text size="xs" c="dimmed">токен LF — в Настройках → Ключи и связки</Text>
         </Group>
         <Group align="flex-end" gap="sm" mt="md">
           <TextInput w={260} label="Google — название аккаунта" description="так подпишем его клиенту" placeholder="Робот ГЦК" value={g.google_sa_name || ""} onChange={(e) => setG({ ...g, google_sa_name: e.currentTarget.value })} />
@@ -106,7 +106,7 @@ export default function Gck() {
           <TextInput label="Логин" value={f.login} onChange={(e) => setF({ ...f, login: e.currentTarget.value })} />
           <PasswordInput label="Пароль" description="от 6 символов, выдаёте клиенту" value={f.password} onChange={(e) => setF({ ...f, password: e.currentTarget.value })} />
         </Group>
-        <TextInput label="Название" description="так назовём проект в Leads Factory" value={f.name} onChange={(e) => setF({ ...f, name: e.currentTarget.value })} mt="xs" />
+        <TextInput label="Название" description="так назовём проект в LF" value={f.name} onChange={(e) => setF({ ...f, name: e.currentTarget.value })} mt="xs" />
         <Group grow mt="xs">
           <TextInput label="Существующий проект LF (crm_id)" description="пусто — создадим новый" value={f.lf_crm_id} onChange={(e) => setF({ ...f, lf_crm_id: e.currentTarget.value })} />
           <TextInput label="Цена заявки, ₽" description="пусто — по умолчанию" value={f.answer_cost} onChange={(e) => setF({ ...f, answer_cost: e.currentTarget.value })} />

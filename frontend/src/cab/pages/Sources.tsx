@@ -48,7 +48,7 @@ export default function Sources() {
   });
   const del = useMutation({
     mutationFn: () => cabApi("/sources/delete", { method: "POST", body: { ids: sel } }),
-    onSuccess: (r: any) => { setSel([]); bust(); notifications.show({ color: "green", message: `Удалено ${r.deleted} источников — в Leads Factory выключены и скрыты` }); },
+    onSuccess: (r: any) => { setSel([]); bust(); notifications.show({ color: "green", message: `Удалено ${r.deleted} источников — в LF выключены и скрыты` }); },
     onError: err,
   });
   const askDelete = () => {
@@ -158,7 +158,7 @@ export default function Sources() {
                 <Table.Td className="num">{dt(s.added_at)}</Table.Td>
                 <Table.Td style={{ whiteSpace: "nowrap" }}>
                   {s.enabled ? <Badge size="xs" color="green" variant="light">включён</Badge> : <Badge size="xs" color="gray" variant="light">{s.enabled_by_user ? "выкл расписанием" : "выключен"}</Badge>}
-                  {s.lf_dirty && <Tooltip label="изменения ещё не ушли в Leads Factory"><Badge size="xs" color="yellow" variant="light" ml={4}>→ LF</Badge></Tooltip>}
+                  {s.lf_dirty && <Tooltip label="изменения ещё не ушли в LF"><Badge size="xs" color="yellow" variant="light" ml={4}>→ LF</Badge></Tooltip>}
                   {s.lf_error && <Tooltip label={s.lf_error}><Badge size="xs" color="red" variant="light" ml={4}>ошибка</Badge></Tooltip>}
                 </Table.Td>
                 <Table.Td><Group gap={2}>{(s.suppliers || []).map((x: string) => <Badge key={x} size="xs" variant="outline" color="teal" title={SUPPLIER_LABEL[x]}>{x}</Badge>)}</Group></Table.Td>

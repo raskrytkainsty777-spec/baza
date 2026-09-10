@@ -61,7 +61,7 @@ async def get_token(db: AsyncSession) -> str:
 class LF:
     def __init__(self, token: str, base: str | None = None):
         if not token:
-            raise LFError("Не задан токен Leads Factory (Настройки → Ключи и связки)")
+            raise LFError("Не задан токен LF (Настройки → Ключи и связки)")
         self.token = token
         self.base = (base or settings.leadsfactory_base).rstrip("/")
 
@@ -70,14 +70,14 @@ class LF:
             r = await cl.request(method, self.base + path, params=params, json=json,
                                  headers={"Authorization": f"Bearer {self.token}"})
         if r.status_code == 401:
-            raise LFError("Leads Factory: токен не принят (401)")
+            raise LFError("LF: токен не принят (401)")
         if r.status_code >= 500:
             # их шлюз отдаёт 502 с «invalid internal token» — это про ИХ внутренний токен, не про наш
             if "internal token" in r.text:
-                raise LFError(f"Leads Factory: сбой на их стороне ({r.status_code}, внутренний токен CRM) — наш токен рабочий")
-            raise LFError(f"Leads Factory недоступен ({r.status_code}): {r.text[:200]}")
+                raise LFError(f"LF: сбой на стороне LF ({r.status_code}, внутренний токен CRM) — наш токен рабочий")
+            raise LFError(f"LF недоступен ({r.status_code}): {r.text[:200]}")
         if r.status_code >= 400:
-            raise LFError(f"Leads Factory {r.status_code}: {r.text[:300]}")
+            raise LFError(f"LF {r.status_code}: {r.text[:300]}")
         try:
             return r.json()
         except ValueError:
@@ -88,7 +88,7 @@ class LF:
         d = await self._req("POST", "/v1/crm/open-api/projects", json={"name": name, "type": type_id})
         pid = (d or {}).get("id")
         if not pid:
-            raise LFError(f"Leads Factory не вернул id проекта: {d}")
+            raise LFError(f"LF не вернул id проекта: {d}")
         return int(pid)
 
     async def project(self, crm_id: int) -> dict:
