@@ -135,12 +135,14 @@ async def push_sources(db: AsyncSession, lf: LF, c: CabClient) -> None:
             (will_on if want_work else will_off).append(s.lf_source_id)
         if s.geo_ids:
             calls.append(lf.sources_settings([s.lf_source_id], geo_ids=[int(g) for g in s.geo_ids]))
-        s.lf_dirty = False
-        s.lf_error = None
+    # флаг снимаем только после успешных вызовов: иначе упавший запрос теряет изменение навсегда
     if will_on:
         await lf.sources_will_work(will_on, True)
     if will_off:
         await lf.sources_will_work(will_off, False)
+    for s in todo.values():
+        if not s.lf_error:
+            s.lf_dirty = False
     if calls:
         sem = asyncio.Semaphore(TAG_CONCURRENCY)
 

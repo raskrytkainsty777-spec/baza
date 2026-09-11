@@ -30,6 +30,7 @@ SUPPLIERS = {
     "B222": "Билайн · исходящие", "B223": "Билайн · входящие", "B333": "МТС · входящие",
     "B111": "Теле2 / Ростелеком", "B221": "Билайн · сайты",
 }
+BULK_MAX = 400        # лимит LF на массовые вызовы — 500, берём с запасом
 PHONE_SUPPLIERS = ["B222", "B223", "B333", "B111"]  # что имеет смысл для номера-источника (B111 = Теле2/Ростелеком, с 07.09.2026)
 
 
@@ -133,15 +134,27 @@ class LF:
             page += 1
 
     async def sources_will_work(self, ids: list[int], on: bool) -> dict:
-        return await self._req("POST", "/v1/vdl/api/sources/update_will_work_bulk",
-                               json={"source_ids": ids, "will_work": on})
+        return await self._bulk(ids, lambda part: self._req(
+            "POST", "/v1/vdl/api/sources/update_will_work_bulk", json={"source_ids": part, "will_work": on}))
+
+    async def _bulk(self, ids: list, call) -> dict:
+        """LF принимает не больше 500 элементов за раз («Ограничение в 500 источников», 11.09.2026),
+        сверх — 400 и вся пачка молча не применяется. Режем и шлём частями."""
+        out: dict = {"parts": 0}
+        for i in range(0, len(ids), BULK_MAX):
+            out = await call(ids[i:i + BULK_MAX])
+            out = out if isinstance(out, dict) else {}
+            out["parts"] = out.get("parts", 0) + 1
+        return out
 
     async def sources_hide(self, ids: list[int]) -> dict:
         """Удаления источника в API нет — скрываем (плюс will_work=false), это максимум."""
-        return await self._req("POST", "/v1/vdl/api/sources/hide", json={"source_ids": ids})
+        return await self._bulk(ids, lambda part: self._req(
+            "POST", "/v1/vdl/api/sources/hide", json={"source_ids": part}))
 
     async def sources_settings(self, ids: list[int], **fields) -> dict:
-        return await self._req("POST", "/v1/vdl/api/sources/update_settings", json={"source_ids": ids, **fields})
+        return await self._bulk(ids, lambda part: self._req(
+            "POST", "/v1/vdl/api/sources/update_settings", json={"source_ids": part, **fields}))
 
     async def geo_all(self) -> list[dict]:
         d = await self._req("GET", "/v1/vdl/api/source_geo", params={"page": 1, "limit": 500})
@@ -163,12 +176,13 @@ class LF:
         return await self._req("PATCH", f"/v1/vdl/api/tags/update/{tag_id}", json=fields)
 
     async def tags_increment(self, tag_ids: list[int], delta: int) -> dict:
-        return await self._req("PATCH", "/v1/vdl/api/tags/increment_limits",
-                               json={"tag_ids": tag_ids, "increment_by": delta})
+        return await self._bulk(tag_ids, lambda part: self._req(
+            "PATCH", "/v1/vdl/api/tags/increment_limits", json={"tag_ids": part, "increment_by": delta}))
 
     # ── чёрный список и заявки ──────────────────────────────────────────────
     async def blacklist_add(self, crm_id: int, phones: list[str]) -> dict:
-        return await self._req("POST", f"/v1/crm/open-api/projects/{crm_id}/blacklist/add", json={"phones": phones})
+        return await self._bulk(phones, lambda part: self._req(
+            "POST", f"/v1/crm/open-api/projects/{crm_id}/blacklist/add", json={"phones": part}))
 
     async def answers(self, crm_id: int, page: int = 1, limit: int = 200, date_from: str | None = None,
                       date_updated_from: str | None = None) -> dict:
