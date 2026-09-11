@@ -106,7 +106,7 @@ export default function Sources() {
           <Text size="sm" fw={500}>Дни закупки:</Text>
           {WEEKDAYS.map((d, i) => <Checkbox key={d} size="xs" label={d} checked={!!days[i]} onChange={(e) => { const nd = [...days]; nd[i] = e.currentTarget.checked; setDays(nd); }} />)}
           <Button size="compact-xs" variant="light" loading={saveDays.isPending} onClick={() => saveDays.mutate(days)}>Сохранить</Button>
-          <Text size="xs" c="dimmed">не отмечен — накануне в 19:40 МСК источники выключаются, отмечен — включаются обратно; выключенные вами вручную не трогаем</Text>
+          <Text size="xs" c="dimmed">не отмечен — накануне в 19:40 МСК закупка по проекту уходит на паузу, отмечен — возвращается в работу; выключенные вами вручную источники не трогаем</Text>
         </Group>
       </Paper>
 
