@@ -118,7 +118,13 @@ async def settings_patch(body: SettingsIn, c: CabClient = Depends(require_client
     if body.weekdays is not None:
         if len(body.weekdays) != 7:
             raise HTTPException(400, "weekdays: 7 флагов, пн..вс")
-        c.weekdays = list(body.weekdays)
+        was, now_days = list(c.weekdays or []), [bool(x) for x in body.weekdays]
+        c.weekdays = now_days
+        if was != now_days:
+            names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+            on = ", ".join(n for n, v in zip(names, now_days) if v) or "нет"
+            await log_event(db, "cab.weekdays", f"Клиент {c.login}: дни закупки → {on}",
+                            entity="cab_client", entity_id=c.id)
     await db.commit()
     return _client_dto(c)
 
