@@ -182,6 +182,11 @@ async def make_lead(db: AsyncSession, c: LgComment, p: LgPost) -> bool:
         c.author_account_id = acc.id
     if acc is None:
         return False
+    # один комментатор — один лид: человек пишет под несколькими постами, и раньше на него
+    # заводилось по лиду на каждый комментарий (решение заказчика 15.09.2026)
+    dup = (await db.execute(select(LgLead.id).where(LgLead.account_id == acc.id))).scalar()
+    if dup:
+        return False
     lead = LgLead(comment_id=c.id, post_id=p.id, account_id=acc.id, city_id=city_id,
                   cost_contact=city.cost_per_contact if city else 0,
                   cost_handling=city.cost_per_handling if city else 0)
