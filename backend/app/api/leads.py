@@ -69,7 +69,9 @@ async def probed(city_id: int | None = None, date_from: str | None = None, date_
     """Пробитая база: лиды с номером. Даты — по дате пробива, в московском времени."""
     st = _stmt(city_id, date_from, date_to, q, source, crm_status)
     total = (await db.execute(select(func.count()).select_from(st.subquery()))).scalar() or 0
-    uniq = (await db.execute(select(func.count(func.distinct(LgLead.phone))).select_from(st.subquery()))).scalar() or 0
+    # считаем по той же выборке: distinct по внешней таблице поверх подзапроса дал бы всю базу
+    uniq_sub = st.with_only_columns(LgLead.phone).subquery()
+    uniq = (await db.execute(select(func.count(func.distinct(uniq_sub.c.phone))))).scalar() or 0
     col = SORTS.get(sort, LgLead.probed_at)
     st = st.order_by(desc(col).nullslast() if order == "desc" else col.asc().nullsfirst(), desc(LgLead.id))
     rows = (await db.execute(st.limit(limit).offset(offset))).all()
