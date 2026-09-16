@@ -3,7 +3,7 @@ import { AppShell, Badge, Box, Group, NavLink, ScrollArea, Text, UnstyledButton 
 import { useQuery } from "@tanstack/react-query";
 import {
   IconBriefcase, IconBuildingCommunity, IconLayoutDashboard, IconListDetails, IconLogout,
-  IconNotebook, IconSearch, IconSettings, IconShoppingCart, IconUsers,
+  IconNotebook, IconPhoneCall, IconSearch, IconSettings, IconShoppingCart, IconUsers,
 } from "@tabler/icons-react";
 import { Login, RequireAuth } from "./auth";
 import { api, clearToken } from "./api";
@@ -11,6 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import Donors from "./pages/Donors";
 import Posts from "./pages/Posts";
 import { Cities, CityPage } from "./pages/Cities";
+import Probed from "./pages/Probed";
 import Search from "./pages/Search";
 import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/search", label: "Поиск доноров", icon: IconSearch },
   { to: "/donors", label: "Доноры", icon: IconUsers },
   { to: "/posts", label: "Посты", icon: IconListDetails },
+  { to: "/probed", label: "Пробитая база", icon: IconPhoneCall },
   { to: "/cities", label: "Города", icon: IconBuildingCommunity },
   { to: "/jobs", label: "Задания и журнал", icon: IconBriefcase },
   { to: "/gck", label: "ГЦК · закупка", icon: IconShoppingCart },
@@ -99,6 +101,7 @@ export default function App() {
                 <Route path="/search" element={<Search />} />
                 <Route path="/donors" element={<Donors />} />
                 <Route path="/posts" element={<Posts />} />
+                <Route path="/probed" element={<Probed />} />
                 <Route path="/cities" element={<Cities />} />
                 <Route path="/cities/:id" element={<CityPage />} />
                 <Route path="/jobs" element={<Jobs />} />

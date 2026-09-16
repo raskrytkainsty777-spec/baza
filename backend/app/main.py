@@ -28,9 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from .api import leads as leads_api  # noqa: E402
 from .api import pub as pub_api  # noqa: E402
 
-for r in (auth, cities, dashboard, donors, posts, search, jobs, settings_api, ops, inbound, gck, cab, cab_dosbor, cab_integrations, pub_api):
+for r in (auth, cities, dashboard, donors, posts, search, jobs, settings_api, ops, inbound, gck, cab, cab_dosbor, cab_integrations, pub_api, leads_api):
     app.include_router(r.router)
 
 try:
