@@ -74,7 +74,9 @@ def _client_dto(c: CabClient) -> dict:
         # рубли и цену заявки LF клиенту не показываем (решение 08.09.2026): только остаток в контактах
         "balance_contacts": c.balance_contacts, "balance_rub": None,
         "answer_cost": None, "balance_synced_at": c.balance_synced_at, "contacts_synced_at": c.contacts_synced_at,
-        "lf_status": c.lf_status, "lf_error": c.lf_error,
+        "lf_status": c.lf_status, "min_balance_contacts": c.min_balance_contacts,
+        "stopped_by_limit": bool(c.min_balance_contacts is not None and c.balance_contacts is not None
+                                 and c.balance_contacts <= c.min_balance_contacts), "lf_error": c.lf_error,
         "contact_cost": float(c.contact_cost or 0), "handling_cost": float(c.handling_cost or 0),
         "suppliers_default": c.suppliers_default or PHONE_SUPPLIERS, "limit_default": c.limit_default,
         "weekdays": c.weekdays or [True] * 7, "hook_token": c.hook_token, "tg_connected": bool(c.tg_chat_id),
@@ -420,7 +422,8 @@ async def companies(c: CabClient = Depends(require_client), db: AsyncSession = D
            .where(CabSource.client_id == c.id).group_by(CabSource.company_id).subquery())
     con = (select(CabContact.company_id,
                   func.count().label("contacts"),
-                  func.count(func.distinct(CabContact.phone)).filter(CabContact.hook_status == "lead").label("leads"),
+                  # квал — это тоже лид, просто дошедший дальше (уточнение заказчика 17.09.2026)
+                  func.count(func.distinct(CabContact.phone)).filter(CabContact.hook_status.in_(("lead", "qual"))).label("leads"),
                   func.count(func.distinct(CabContact.phone)).filter(CabContact.hook_status == "qual").label("quals"),
                   func.count(func.distinct(CabContact.phone)).filter(CabContact.hook_status == "unsuccessful").label("unsuccessful"))
            .where(CabContact.client_id == c.id).group_by(CabContact.company_id).subquery())

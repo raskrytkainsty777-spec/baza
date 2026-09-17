@@ -13,11 +13,11 @@ import asyncio
 import logging
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
-from ..models import CabClient, CabSource
+from ..models import CabClient, CabContact, CabSource
 from ..services.leadsfactory.client import LF, LFError, MSK, get_token
 from .common import heartbeat, log_event
 
@@ -25,6 +25,7 @@ log = logging.getLogger("cab_schedule")
 
 POLL = 60
 APPLY_AT = (19, 40)
+MIN_BALANCE_AT = (19, 30)   # до вечернего цикла LF (после 20:00 МСК он применяет настройки)
 
 
 async def run():
@@ -32,6 +33,8 @@ async def run():
         try:
             async with SessionLocal() as db:
                 now = datetime.now(MSK)
+                if (now.hour, now.minute) >= MIN_BALANCE_AT:
+                    await _apply_min_balance(db, now)
                 if (now.hour, now.minute) >= APPLY_AT:
                     await _apply_tomorrow(db, now)
                 else:
@@ -78,6 +81,43 @@ async def _clients(db: AsyncSession) -> tuple[list[CabClient], LF | None]:
         return [], None
     token = await get_token(db)
     return clients, (LF(token) if token else None)
+
+
+async def _apply_min_balance(db: AsyncSession, now: datetime) -> None:
+    """«Мин. остаток актива» = сколько номеров выгрузили сегодня: завтра закупка встанет,
+    когда на балансе останется столько же. Порог всегда хотя бы на контакт ниже баланса,
+    иначе LF остановит закупку сразу (правило заказчика 17.09.2026)."""
+    today = now.date()
+    clients, lf = await _clients(db)
+    if not lf:
+        return
+    day_start = datetime(today.year, today.month, today.day, tzinfo=MSK)
+    for c in clients:
+        if not c.min_balance_auto or not c.lf_crm_id or c.min_balance_applied_day == today:
+            continue
+        bought = (await db.execute(select(func.count()).select_from(CabContact).where(
+            CabContact.client_id == c.id, CabContact.bought_at >= day_start))).scalar() or 0
+        if not bought:
+            continue   # первый день или закупки не было — порог не трогаем
+        balance = c.balance_contacts or 0
+        limit = max(0, min(bought, balance - 1))
+        cost = float(c.lf_answer_cost or 0)
+        if not cost:
+            continue
+        try:
+            await lf.payment_update(c.lf_crm_id, min_client_balance=round(limit * cost, 2))
+        except LFError as e:
+            log.warning("клиент %s: порог остатка не выставился (%s)", c.login, e)
+            continue
+        c.min_balance_contacts = limit
+        c.min_balance_applied_day = today
+        note = f"выгрузили сегодня {bought}"
+        if limit < bought:
+            note += f", но на балансе {balance} — ставим на контакт ниже"
+        await log_event(db, "cab.min_balance",
+                        f"Клиент {c.login}: порог остановки {limit} контактов ({round(limit * cost)} ₽) — {note}",
+                        entity="cab_client", entity_id=c.id)
+    await db.commit()
 
 
 async def _apply_tomorrow(db: AsyncSession, now: datetime) -> None:

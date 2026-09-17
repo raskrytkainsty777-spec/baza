@@ -44,6 +44,10 @@ class CabClient(Base):
     # расписание по дням недели: 7 флагов, пн..вс
     weekdays: Mapped[list] = mapped_column(JSONB, default=list)
     schedule_applied_day: Mapped[date | None] = mapped_column(Date)
+    # автолимит: «мин. остаток актива» в LF по дневному расходу, чтобы закупка встала вовремя
+    min_balance_auto: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    min_balance_contacts: Mapped[int | None] = mapped_column(Integer)      # что выставили, в контактах
+    min_balance_applied_day: Mapped[date | None] = mapped_column(Date)
 
     hook_token: Mapped[str] = mapped_column(String(64), unique=True)     # /api/cab/hook/{token} — статусы
     tg_chat_id: Mapped[str | None] = mapped_column(String(32))
