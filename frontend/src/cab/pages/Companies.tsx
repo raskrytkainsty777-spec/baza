@@ -87,8 +87,26 @@ export default function Companies() {
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState<number[]>([]);
   const [group, setGroup] = useState("");
+  const [sort, setSort] = useState<string>("contacts");
+  const [dir, setDir] = useState<"desc" | "asc">("desc");
   const q = useQuery({ queryKey: ["cab-companies"], queryFn: () => cabApi("/companies"), refetchInterval: 60_000 });
-  const items: any[] = q.data?.items || [];
+  const raw: any[] = q.data?.items || [];
+  const items: any[] = [...raw].sort((a, b) => {
+    const av = a[sort], bv = b[sort];
+    // пусто всегда внизу, как бы ни сортировали
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const r = typeof av === "string" ? String(av).localeCompare(String(bv), "ru") : Number(av) - Number(bv);
+    return dir === "desc" ? -r : r;
+  });
+  // клик по заголовку: сначала по убыванию, повторный клик — по возрастанию
+  const th = (key: string, label: string, right = true) => (
+    <Table.Th ta={right ? "right" : undefined} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+      onClick={() => { if (sort === key) setDir(dir === "desc" ? "asc" : "desc"); else { setSort(key); setDir("desc"); } }}>
+      {label}{sort === key ? (dir === "desc" ? " ↓" : " ↑") : ""}
+    </Table.Th>
+  );
   const pct = (v: number | null) => (v == null ? "—" : `${v}%`);
   const bust = () => { qc.invalidateQueries({ queryKey: ["cab-companies"] }); qc.invalidateQueries({ queryKey: ["cab-sources"] }); };
   const bulk = useMutation({
@@ -134,7 +152,10 @@ export default function Companies() {
           <Table.Thead><Table.Tr>
             <Table.Th w={28}><Checkbox size="xs" checked={!!items.length && sel.length === items.length} indeterminate={!!sel.length && sel.length < items.length}
               onChange={(e) => setSel(e.currentTarget.checked ? items.map((c) => c.id) : [])} /></Table.Th>
-            <Table.Th>Компания</Table.Th><Table.Th>Группа</Table.Th><Table.Th ta="right">Источников</Table.Th><Table.Th ta="right">Куплено</Table.Th><Table.Th ta="right">Лидов</Table.Th><Table.Th ta="right">Неуспешных</Table.Th><Table.Th ta="right">Квал-лидов</Table.Th><Table.Th ta="right">Конв. лид</Table.Th><Table.Th ta="right">Конв. квал</Table.Th><Table.Th ta="right">Потрачено</Table.Th><Table.Th ta="right">₽ / лид</Table.Th><Table.Th ta="right">₽ / квал</Table.Th>
+            {th("name", "Компания", false)}{th("group", "Группа", false)}{th("sources", "Источников")}{th("contacts", "Куплено")}
+            {th("leads", "Лидов")}{th("unsuccessful", "Неуспешных")}{th("quals", "Квал-лидов")}
+            {th("conversion_lead", "Конв. лид")}{th("conversion_qual", "Конв. квал")}
+            {th("spend", "Потрачено")}{th("cost_per_lead", "₽ / лид")}{th("cost_per_qual", "₽ / квал")}
           </Table.Tr></Table.Thead>
           <Table.Tbody>
             {items.map((c) => (
