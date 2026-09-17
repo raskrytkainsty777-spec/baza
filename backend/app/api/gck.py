@@ -41,6 +41,9 @@ def _dto(c: CabClient, extra: dict | None = None) -> dict:
     d = {
         "id": c.id, "login": c.login, "name": c.name, "is_active": c.is_active,
         "lf_crm_id": c.lf_crm_id, "lf_status": c.lf_status,
+        "min_balance_contacts": c.min_balance_contacts, "min_balance_auto": c.min_balance_auto,
+        "stopped_by_limit": bool(c.min_balance_contacts is not None and c.balance_contacts is not None
+                                 and c.balance_contacts <= c.min_balance_contacts),
         "lf_answer_cost": float(c.lf_answer_cost) if c.lf_answer_cost is not None else None,
         "lf_balance_rub": float(c.lf_balance_rub) if c.lf_balance_rub is not None else None,
         "balance_contacts": c.balance_contacts, "balance_synced_at": c.balance_synced_at,

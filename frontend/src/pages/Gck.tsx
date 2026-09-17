@@ -68,7 +68,8 @@ export default function Gck() {
               <Table.Tr key={c.id} style={{ opacity: c.is_active ? 1 : 0.5 }}>
                 <Table.Td><Text size="sm" fw={500}>{c.name}</Text><Text size="xs" c="dimmed" className="mono">{c.login}</Text></Table.Td>
                 <Table.Td className="num">{c.lf_crm_id || "—"}</Table.Td>
-                <Table.Td><Badge size="xs" variant="light" color={c.lf_status === "active" ? "green" : c.lf_status === "pause" ? "yellow" : "gray"}>{c.lf_status || "—"}</Badge>{c.lf_error && <Text size="xs" c="red" className="clip" style={{ maxWidth: 220 }} title={c.lf_error}>{c.lf_error}</Text>}</Table.Td>
+                <Table.Td><Badge size="xs" variant="light" color={c.stopped_by_limit ? "orange" : c.lf_status === "active" ? "green" : c.lf_status === "pause" ? "yellow" : "gray"}>{c.stopped_by_limit ? "стоп по порогу" : c.lf_status || "—"}</Badge>
+                  {c.min_balance_contacts != null && <Text size="xs" c="dimmed">порог {n(c.min_balance_contacts)} конт.</Text>}{c.lf_error && <Text size="xs" c="red" className="clip" style={{ maxWidth: 220 }} title={c.lf_error}>{c.lf_error}</Text>}</Table.Td>
                 <Table.Td className="num" ta="right"><Text span fw={600} c={c.balance_contacts ? undefined : "red"}>{c.balance_contacts == null ? "—" : n(c.balance_contacts)}</Text></Table.Td>
                 <Table.Td className="num" ta="right">{c.lf_balance_rub == null ? "—" : n(c.lf_balance_rub)}</Table.Td>
                 <Table.Td className="num" ta="right">{c.lf_answer_cost ?? "—"}</Table.Td>

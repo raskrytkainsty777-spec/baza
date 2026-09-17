@@ -94,7 +94,9 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Badge size="lg" variant="light" color={m.balance_contacts ? "teal" : "red"} style={{ textTransform: "none" }}>
               баланс: {m.balance_contacts == null ? "—" : n(m.balance_contacts)} контактов
             </Badge>
-            <Badge size="lg" variant="light" color={m.lf_status === "active" ? "green" : "gray"} style={{ textTransform: "none" }}>закупка: {m.lf_status === "active" ? "идёт" : m.lf_status || "не запущена"}</Badge>
+            <Badge size="lg" variant="light" color={m.stopped_by_limit ? "orange" : m.lf_status === "active" ? "green" : "gray"} style={{ textTransform: "none" }}>
+              закупка: {m.stopped_by_limit ? `остановлена — остаток ${n(m.balance_contacts)} на пороге ${n(m.min_balance_contacts)}`
+                : m.lf_status === "active" ? "идёт" : m.lf_status || "не запущена"}</Badge>
             {m.lf_error && <Badge size="lg" variant="light" color="red" style={{ textTransform: "none" }}>{m.lf_error.slice(0, 80)}</Badge>}
             <Text size="xs" c="dimmed">обновление баланса раз в минуту</Text>
           </Group>
