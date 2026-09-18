@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { "/api": { target: "http://95.81.103.196", changeOrigin: true } },
+    proxy: { "/api": { target: "https://baza.leadax.ru", changeOrigin: true } },
   },
   build: { outDir: "dist", sourcemap: false, chunkSizeWarningLimit: 1200 },
 });
