@@ -86,7 +86,12 @@ async def _clients(db: AsyncSession) -> tuple[list[CabClient], LF | None]:
 async def _apply_min_balance(db: AsyncSession, now: datetime) -> None:
     """«Мин. остаток актива» = сколько номеров выгрузили сегодня: завтра закупка встанет,
     когда на балансе останется столько же. Порог всегда хотя бы на контакт ниже баланса,
-    иначе LF остановит закупку сразу (правило заказчика 17.09.2026)."""
+    иначе LF остановит закупку сразу (правило заказчика 17.09.2026).
+
+    Порог — только страховка на «завтра» и работает лишь при положительном
+    балансе. Настоящий стоп на нуле — `maybe_stop` в cab_sync, он гасит проект
+    статусом в течение минуты.
+    """
     today = now.date()
     clients, lf = await _clients(db)
     if not lf:
@@ -100,9 +105,15 @@ async def _apply_min_balance(db: AsyncSession, now: datetime) -> None:
         if not bought:
             continue   # первый день или закупки не было — порог не трогаем
         balance = c.balance_contacts or 0
-        limit = max(0, min(bought, balance - 1))
         cost = float(c.lf_answer_cost or 0)
         if not cost:
+            continue
+        # Ноль LF понимает как «порога нет», а не «стоп на нуле». Поэтому на
+        # нулевом и минусовом балансе порог не трогаем вовсе: там закупку гасит
+        # maybe_stop статусом проекта. Раньше max(0, …) схлопывал порог в ноль
+        # ровно тогда, когда он был нужнее всего, и закупка уходила в минус.
+        limit = min(bought, balance - 1)
+        if limit <= 0:
             continue
         try:
             await lf.payment_update(c.lf_crm_id, min_client_balance=round(limit * cost, 2))

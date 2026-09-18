@@ -68,6 +68,7 @@ async def _client_pass(db: AsyncSession, lf: LF, c: CabClient) -> None:
         await step("баланс", lambda: sync_balance(db, lf, c))
     if not c.contacts_synced_at or now - c.contacts_synced_at >= CONTACTS_EVERY:
         await step("контакты", lambda: sync_contacts(db, lf, c))
+    await step("остановка по нулю", lambda: maybe_stop(db, lf, c))
     await step("включение закупки", lambda: maybe_activate(db, lf, c))
     c.lf_error = "; ".join(errors)[:500] or None
     await db.commit()
@@ -238,8 +239,33 @@ async def sync_balance(db: AsyncSession, lf: LF, c: CabClient) -> None:
     c.balance_synced_at = utcnow()
 
 
+async def maybe_stop(db: AsyncSession, lf: LF, c: CabClient) -> None:
+    """Баланс кончился — гасим закупку сразу, не дожидаясь вечернего цикла.
+
+    На порог LF (`min_client_balance`) в этом месте полагаться нельзя: ноль там
+    означает «ограничения нет», а на отрицательном балансе порог ниже баланса
+    выставить уже нечем. 17.09.2026 «Среда Обучения» так ушла с −275 до −709
+    контактов за сутки, оставаясь в статусе active.
+    """
+    if c.lf_status != "active" or not c.lf_crm_id:
+        return
+    if c.balance_contacts is None or c.balance_contacts > 0:
+        return
+    await lf.set_status(c.lf_crm_id, "pause")
+    c.lf_status = "pause"
+    await log_event(db, "cab.stopped_no_balance",
+                    f"Клиент {c.login}: баланс {c.balance_contacts} контактов "
+                    f"({c.lf_balance_rub} ₽) — закупка остановлена",
+                    entity="cab_client", entity_id=c.id, level="warn")
+
+
 async def maybe_activate(db: AsyncSession, lf: LF, c: CabClient) -> None:
-    """Закупка включается сама, когда у клиента появились источники в LF и баланс больше нуля."""
+    """Закупка включается сама, когда у клиента появились источники в LF и баланс больше нуля.
+
+    Проект, погашенный из-за нуля на балансе, сам не оживает: статус у него
+    «pause», а не «new». После пополнения закупку включают руками — иначе
+    деньги уходили бы снова, ещё до того, как это заметили.
+    """
     if c.lf_status not in (None, "new"):
         return
     if not c.balance_contacts or c.balance_contacts <= 0:

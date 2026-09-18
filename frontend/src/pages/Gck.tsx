@@ -68,7 +68,18 @@ export default function Gck() {
               <Table.Tr key={c.id} style={{ opacity: c.is_active ? 1 : 0.5 }}>
                 <Table.Td><Text size="sm" fw={500}>{c.name}</Text><Text size="xs" c="dimmed" className="mono">{c.login}</Text></Table.Td>
                 <Table.Td className="num">{c.lf_crm_id || "—"}</Table.Td>
-                <Table.Td><Badge size="xs" variant="light" color={c.stopped_by_limit ? "orange" : c.lf_status === "active" ? "green" : c.lf_status === "pause" ? "yellow" : "gray"}>{c.stopped_by_limit ? "стоп по порогу" : c.lf_status || "—"}</Badge>
+                <Table.Td>{(() => {
+                  // Плашка показывает ФАКТ из LF, а не наш расчёт: 17.09.2026 «стоп по
+                  // порогу» горел, пока проект оставался active и уходил в минус.
+                  const buying = c.lf_status === "active";
+                  const minus = (c.balance_contacts ?? 0) <= 0;
+                  const [color, label] = buying && minus ? ["red", "закупает в минус!"]
+                    : buying ? ["green", "закупает"]
+                    : c.lf_status === "pause" || c.lf_status === "stop" ? ["yellow", "остановлена"]
+                    : ["gray", c.lf_status || "—"];
+                  return <Badge size="xs" variant="light" color={color}>{label}</Badge>;
+                })()}
+                  {!c.lf_status && <Text size="xs" c="dimmed">нет проекта</Text>}
                   {c.min_balance_contacts != null && <Text size="xs" c="dimmed">порог {n(c.min_balance_contacts)} конт.</Text>}{c.lf_error && <Text size="xs" c="red" className="clip" style={{ maxWidth: 220 }} title={c.lf_error}>{c.lf_error}</Text>}</Table.Td>
                 <Table.Td className="num" ta="right"><Text span fw={600} c={c.balance_contacts ? undefined : "red"}>{c.balance_contacts == null ? "—" : n(c.balance_contacts)}</Text></Table.Td>
                 <Table.Td className="num" ta="right">{c.lf_balance_rub == null ? "—" : n(c.lf_balance_rub)}</Table.Td>

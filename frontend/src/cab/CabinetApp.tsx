@@ -94,9 +94,16 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Badge size="lg" variant="light" color={m.balance_contacts ? "teal" : "red"} style={{ textTransform: "none" }}>
               баланс: {m.balance_contacts == null ? "—" : n(m.balance_contacts)} контактов
             </Badge>
-            <Badge size="lg" variant="light" color={m.stopped_by_limit ? "orange" : m.lf_status === "active" ? "green" : "gray"} style={{ textTransform: "none" }}>
-              закупка: {m.stopped_by_limit ? `остановлена — остаток ${n(m.balance_contacts)} на пороге ${n(m.min_balance_contacts)}`
-                : m.lf_status === "active" ? "идёт" : m.lf_status || "не запущена"}</Badge>
+            {/* Статус берём из LF, а не из расчёта по порогу: иначе плашка
+                говорит «остановлена», пока закупка идёт и баланс уходит в минус. */}
+            <Badge size="lg" variant="light" style={{ textTransform: "none" }}
+              color={m.lf_status === "active" ? ((m.balance_contacts ?? 0) <= 0 ? "red" : "green")
+                : m.lf_status === "pause" || m.lf_status === "stop" ? "orange" : "gray"}>
+              закупка: {m.lf_status === "active"
+                ? ((m.balance_contacts ?? 0) <= 0 ? "идёт, но баланс исчерпан" : "идёт")
+                : m.lf_status === "pause" || m.lf_status === "stop"
+                  ? ((m.balance_contacts ?? 0) <= 0 ? "остановлена — баланс исчерпан" : "остановлена")
+                  : "не запущена"}</Badge>
             {m.lf_error && <Badge size="lg" variant="light" color="red" style={{ textTransform: "none" }}>{m.lf_error.slice(0, 80)}</Badge>}
             <Text size="xs" c="dimmed">обновление баланса раз в минуту</Text>
           </Group>
