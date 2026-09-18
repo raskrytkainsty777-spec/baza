@@ -68,7 +68,7 @@ async def _pass(db: AsyncSession) -> None:
         headers = await _headers(db, row)
         code, err = None, None
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as cl:
+            async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as cl:
                 r = await cl.post(row.url, content=json.dumps(row.payload, ensure_ascii=False).encode("utf-8"), headers=headers)
             code = r.status_code
             if code >= 400:

@@ -24,10 +24,10 @@ class Settings(BaseSettings):
     ai_model_smart: str = "anthropic/claude-sonnet-5"
 
     # наш внешний адрес: parser.im забирает отсюда списки логинов для f1
-    public_base_url: str = "http://95.81.103.196"
+    public_base_url: str = "https://baza.leadax.ru"
 
     # пробив на старом сервере
-    probe_base_url: str = "http://132.243.114.17"
+    probe_base_url: str = "https://probe.leadax.ru"
     probe_hook_token: str = ""
     probe_callback_secret: str = ""
 
