@@ -49,6 +49,17 @@ def _days(c: CabClient) -> list:
     return c.weekdays if c.weekdays and len(c.weekdays) == 7 else [True] * 7
 
 
+def _no_money(c: CabClient) -> bool:
+    """Баланс исчерпан — расписание не имеет права включать закупку.
+
+    Иначе «сегодня рабочий день» каждую минуту возвращает проект в active, а
+    cab_sync тут же гасит его по нулю: два воркера дерутся, и в окна между
+    ними закупка успевает уходить в минус. Пополнили баланс — расписание само
+    включит закупку обратно на следующем проходе.
+    """
+    return c.balance_contacts is not None and c.balance_contacts <= 0
+
+
 async def _set(db: AsyncSession, lf: LF | None, c: CabClient, on: bool, note: str) -> None:
     """Перевести закупку клиента в нужное состояние: статусом проекта, иначе источниками."""
     want = "active" if on else "pause"
@@ -137,8 +148,9 @@ async def _apply_tomorrow(db: AsyncSession, now: datetime) -> None:
     for c in clients:
         if c.schedule_applied_day == today:
             continue
-        on = bool(_days(c)[(now.weekday() + 1) % 7])
-        await _set(db, lf, c, on, f"завтра закупка {'включена' if on else 'выключена'} расписанием")
+        on = bool(_days(c)[(now.weekday() + 1) % 7]) and not _no_money(c)
+        await _set(db, lf, c, on, f"завтра закупка {'включена' if on else 'выключена'} расписанием"
+                   + (" (баланс исчерпан)" if _no_money(c) else ""))
         c.schedule_applied_day = today
     await db.commit()
 
@@ -147,7 +159,7 @@ async def _hold_today(db: AsyncSession, now: datetime) -> None:
     """Днём держим состояние текущего дня: правка расписания срабатывает сразу, а не назавтра."""
     clients, lf = await _clients(db)
     for c in clients:
-        on = bool(_days(c)[now.weekday()])
+        on = bool(_days(c)[now.weekday()]) and not _no_money(c)
         want = "active" if on else "pause"
         need_sources = (await db.execute(select(CabSource.id).where(
             CabSource.client_id == c.id, CabSource.enabled_by_schedule.is_(not on)).limit(1))).first()
