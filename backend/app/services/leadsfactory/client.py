@@ -32,7 +32,13 @@ SUPPLIERS = {
 }
 BULK_MAX = 400        # лимит LF на массовые вызовы — 500, берём с запасом
 READ_RETRIES = 3      # попыток на GET при обрыве соединения/таймауте
-SOURCES_PAGE = 100    # страница списка источников: 200 давали ~90 КБ ответа, обрыв 19.09.2026 был на ~80 КБ
+RATE_RETRIES = 4      # повторов на 429 (пауза RATE_PAUSE, дальше вдвое: 5, 10, 20, 40 с)
+RATE_PAUSE = 5.0
+# Ответ длиннее ~80 КБ их openresty обрывает на 81 678-м байте (замер 21.09.2026: теги по 300 —
+# 155 КБ, режется всегда; по 150 — 77 КБ и по 100 — 52 КБ проходят; openapi.json на 279 КБ
+# тоже режется). Поэтому страницы держим заведомо короче.
+SOURCES_PAGE = 100    # ~45 КБ на страницу (по 200 было ~90 КБ — на грани)
+TAGS_PAGE = 100       # ~52 КБ на страницу
 PHONE_SUPPLIERS = ["B222", "B223", "B333", "B111"]  # что имеет смысл для номера-источника (B111 = Теле2/Ростелеком, с 07.09.2026)
 
 
@@ -74,13 +80,16 @@ class LF:
         # Чтение повторяем: 19.09.2026 их openresty почти сутки закрывал соединение на полпути
         # («peer closed connection without sending complete message body»), запись не повторяем —
         # она могла успеть примениться.
+        # 429 повторяем для любого метода: отклонённый запрос не применился, а лимит у LF общий
+        # на аккаунт — после рестарта воркера разгрузка накопившихся изменений упирается в него.
         attempts = READ_RETRIES if method == "GET" else 1
-        for attempt in range(1, attempts + 1):
+        attempt = rate_hits = 0
+        while True:
+            attempt += 1
             try:
                 async with httpx.AsyncClient(timeout=TIMEOUT) as cl:
                     r = await cl.request(method, self.base + path, params=params, json=json,
                                          headers={"Authorization": f"Bearer {self.token}"})
-                break
             except httpx.HTTPError as e:
                 if attempt < attempts:
                     log.warning("LF %s %s: %s: %s — повтор %d/%d", method, path, type(e).__name__, e,
@@ -88,6 +97,18 @@ class LF:
                     await asyncio.sleep(2 * attempt)
                     continue
                 raise LFError(f"LF не ответил ({type(e).__name__}): {str(e)[:200]}") from e
+            if r.status_code == 429 and rate_hits < RATE_RETRIES:
+                rate_hits += 1
+                try:
+                    wait = min(float(r.headers.get("retry-after") or 0), 60.0)
+                except ValueError:
+                    wait = 0.0
+                wait = wait or RATE_PAUSE * 2 ** (rate_hits - 1)
+                log.warning("LF %s %s: 429, ждём %.0f с (попытка %d/%d)", method, path, wait, rate_hits, RATE_RETRIES)
+                await asyncio.sleep(wait)
+                attempt -= 1       # повтор из-за лимита не съедает попытку на обрыв
+                continue
+            break
         if r.status_code == 401:
             raise LFError("LF: токен не принят (401)")
         if r.status_code >= 500:
@@ -183,10 +204,10 @@ class LF:
         out, page = [], 1
         while True:
             d = await self._req("GET", f"/v1/vdl/api/tags/get_by_project/{crm_id}",
-                                params={"page": page, "limit": 300, "show_locked": "true"})
+                                params={"page": page, "limit": TAGS_PAGE, "show_locked": "true"})
             items = d.get("tags") or []
             out += items
-            if len(items) < 300:
+            if len(items) < TAGS_PAGE:
                 return out
             page += 1
 
