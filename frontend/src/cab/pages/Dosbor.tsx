@@ -24,7 +24,7 @@ function Agents() {
   const req = (r: any) => r ? `${r.kind === "sbp" ? "СБП" : "карта"} · ${r.bank} · ${r.value}` : "нет реквизитов";
   return (
     <>
-      <Group justify="space-between" mb="xs"><Text c="dimmed" size="sm">агенты ищут новые номера-источники на сайтах из списка и получают оплату за каждый уникальный · вход агентов: <Code>{location.origin}/agent</Code></Text><Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Добавить агента</Button></Group>
+      <Group justify="space-between" mb="xs"><Text c="dimmed" size="sm">агенты общие для всех проектов: заведите агента один раз — он видит активные задачи всех проектов и сам выбирает нужный · «найдено» здесь — по этому проекту, баланс и выплаты — общие · вход агентов: <Code>{location.origin}/agent</Code></Text><Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Добавить агента</Button></Group>
       <Paper p="xs" style={{ overflowX: "auto" }}>
         <Table fz="xs" verticalSpacing={5} className="compact">
           <Table.Thead><Table.Tr><Table.Th>Агент</Table.Th><Table.Th>Логин</Table.Th><Table.Th ta="right">Найдено</Table.Th><Table.Th ta="right">Баланс</Table.Th><Table.Th ta="right">Выплачено</Table.Th><Table.Th>Реквизиты</Table.Th><Table.Th /></Table.Tr></Table.Thead>
@@ -139,7 +139,7 @@ function TasksTab() {
     <>
       <TextInput label="Название задачи" value={x.name} onChange={(e) => set({ ...x, name: e.currentTarget.value })} />
       {!x.id && <Select label="Список ресурсов" data={listOpts} value={x.list_id} onChange={(v) => set({ ...x, list_id: v || "" })} mt="xs" />}
-      <MultiSelect label="Агенты" data={agentOpts} value={x.agent_ids} onChange={(v) => set({ ...x, agent_ids: v })} mt="xs" />
+      <MultiSelect label="Агенты" description="необязательно: задачу видят все агенты, здесь — кому она адресована" data={agentOpts} value={x.agent_ids} onChange={(v) => set({ ...x, agent_ids: v })} mt="xs" />
       <Group grow mt="xs">
         <NumberInput label="Цена за уникальный источник, ₽" value={x.price_per_source} onChange={(v) => set({ ...x, price_per_source: v })} min={0} />
         <NumberInput label="Лимит уникальных источников на задачу" description="0 — без лимита" value={x.limit_sources} onChange={(v) => set({ ...x, limit_sources: v })} min={0} />
@@ -153,7 +153,7 @@ function TasksTab() {
   );
   return (
     <>
-      <Group justify="space-between" mb="xs"><Text c="dimmed" size="sm">лимит считается на задачу, не на агента · выключенная задача у агентов не видна</Text><Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Создать задачу</Button></Group>
+      <Group justify="space-between" mb="xs"><Text c="dimmed" size="sm">задачу видят все агенты · лимит считается на задачу, не на агента · выключенная задача у агентов не видна</Text><Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setOpen(true)}>Создать задачу</Button></Group>
       <Stack>
         {items.map((t) => (
           <Paper key={t.id} p="sm">
@@ -176,7 +176,7 @@ function TasksTab() {
             </Group>
           </Paper>
         ))}
-        {!items.length && <Paper><Text c="dimmed" ta="center">задач пока нет — сначала список ресурсов и агенты</Text></Paper>}
+        {!items.length && <Paper><Text c="dimmed" ta="center">задач пока нет — сначала список ресурсов</Text></Paper>}
       </Stack>
       <Modal opened={open} onClose={() => setOpen(false)} title="Новая задача" size="lg">
         {form(f, setF)}

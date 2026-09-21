@@ -206,10 +206,12 @@ class CabOutbox(Base):
 # ── досбор ───────────────────────────────────────────────────────────────────
 
 class CabAgent(Base):
+    """Агент досбора. Общий для всех проектов (21.09.2026): один логин, видит активные задачи
+    всех клиентов. client_id — лишь кабинет, где его завели; на доступ не влияет."""
     __tablename__ = "cab_agents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("cab_clients.id"), index=True)
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("cab_clients.id"), index=True, nullable=True)
     login: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     name: Mapped[str] = mapped_column(String(120))

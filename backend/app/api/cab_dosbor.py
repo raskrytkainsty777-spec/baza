@@ -1,5 +1,8 @@
-"""Досбор — клиент управляет агентами, списками ресурсов и задачами; агенты приносят новые
+"""Досбор — клиент управляет списками ресурсов и задачами; агенты приносят новые
 номера-источники. Всё под /api/cab/dosbor, вход клиента.
+
+Агенты общие для всех проектов (21.09.2026): заводятся один раз в любом кабинете, видны
+во всех, видят активные задачи всех клиентов. client_id у агента — только кто завёл.
 """
 import csv
 import io
@@ -96,11 +99,12 @@ def _agent_dto(a: CabAgent, extra: dict | None = None) -> dict:
 
 @router.get("/agents")
 async def agents(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(select(CabAgent).where(CabAgent.client_id == c.id).order_by(CabAgent.id))).scalars().all()
+    """Агенты общие для всех проектов (21.09.2026): список один на всех кабинетах,
+    «найдено» — по этому проекту, баланс и выплаты — общие для агента."""
+    rows = (await db.execute(select(CabAgent).order_by(desc(CabAgent.is_active), CabAgent.id))).scalars().all()
     found = dict((await db.execute(select(CabFoundSource.agent_id, func.count()).where(CabFoundSource.client_id == c.id)
                                    .group_by(CabFoundSource.agent_id))).all())
     paid = dict((await db.execute(select(CabPayout.agent_id, func.coalesce(func.sum(CabPayout.amount), 0))
-                                  .join(CabAgent, CabAgent.id == CabPayout.agent_id).where(CabAgent.client_id == c.id)
                                   .group_by(CabPayout.agent_id))).all())
     return {"items": [_agent_dto(a, {"found_total": found.get(a.id, 0), "paid_total": float(paid.get(a.id, 0))}) for a in rows]}
 
@@ -121,7 +125,7 @@ async def agent_create(body: AgentIn, c: CabClient = Depends(require_client), db
 @router.patch("/agents/{agent_id}")
 async def agent_patch(agent_id: int, body: AgentPatch, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
     a = await db.get(CabAgent, agent_id)
-    if not a or a.client_id != c.id:
+    if not a:
         raise HTTPException(404, "Агент не найден")
     if body.name is not None:
         a.name = body.name.strip()
@@ -138,7 +142,7 @@ async def agent_patch(agent_id: int, body: AgentPatch, c: CabClient = Depends(re
 @router.get("/agents/{agent_id}/payouts")
 async def payouts(agent_id: int, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
     a = await db.get(CabAgent, agent_id)
-    if not a or a.client_id != c.id:
+    if not a:
         raise HTTPException(404, "Агент не найден")
     rows = (await db.execute(select(CabPayout).where(CabPayout.agent_id == agent_id).order_by(desc(CabPayout.id)))).scalars().all()
     return {"items": [{"id": p.id, "amount": float(p.amount), "requisites": p.requisites, "note": p.note, "paid_at": p.paid_at} for p in rows]}
@@ -146,9 +150,10 @@ async def payouts(agent_id: int, c: CabClient = Depends(require_client), db: Asy
 
 @router.post("/agents/{agent_id}/payout")
 async def payout(agent_id: int, body: PayoutIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
-    """«Обнулить баланс»: записываем выплату на текущую сумму со снимком реквизитов, баланс → 0."""
+    """«Обнулить баланс»: записываем выплату на текущую сумму со снимком реквизитов, баланс → 0.
+    Баланс у агента общий по всем проектам — обнуляет тот кабинет, который платит."""
     a = await db.get(CabAgent, agent_id)
-    if not a or a.client_id != c.id:
+    if not a:
         raise HTTPException(404, "Агент не найден")
     amount = Decimal(a.balance or 0)
     if amount <= 0:
@@ -233,7 +238,8 @@ async def _task_dto(db: AsyncSession, t: CabTask) -> dict:
 
 
 async def _set_agents(db: AsyncSession, c: CabClient, t: CabTask, agent_ids: list[int]) -> None:
-    valid = set((await db.execute(select(CabAgent.id).where(CabAgent.client_id == c.id, CabAgent.id.in_(agent_ids or [-1])))).scalars().all())
+    """Назначение — для учёта: задачу и так видят все агенты, при первом источнике агент привяжется сам."""
+    valid = set((await db.execute(select(CabAgent.id).where(CabAgent.id.in_(agent_ids or [-1])))).scalars().all())
     current = (await db.execute(select(CabTaskAgent).where(CabTaskAgent.task_id == t.id))).scalars().all()
     for ta in current:
         if ta.agent_id not in valid:

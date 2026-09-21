@@ -56,7 +56,7 @@ function Header({ me }: { me: any }) {
   const nav = useNavigate();
   return (
     <Group justify="space-between" mb="md">
-      <div><Text fw={600}>{me?.name}</Text><Text size="xs" c="dimmed">{me?.client_name}</Text></div>
+      <div><Text fw={600}>{me?.name}</Text><Text size="xs" c="dimmed">досбор · проектов: {(me?.projects || []).length}</Text></div>
       <Group gap="sm">
         <Badge size="lg" variant="light" color="teal" style={{ textTransform: "none" }}>баланс: {money(me?.balance)}</Badge>
         <Wallet me={me} />
@@ -66,22 +66,31 @@ function Header({ me }: { me: any }) {
   );
 }
 
-function TaskList() {
+function ProjectList() {
+  // Агент общий для всех проектов: показываем все активные задачи, сгруппированные по проекту (клиенту)
   const me = useMe();
   const nav = useNavigate();
-  const tasks: any[] = me.data?.tasks || [];
+  const projects: any[] = me.data?.projects || [];
   return (
     <Container size="sm" py="md">
       <Header me={me.data} />
-      <Title order={3} mb="sm">Задачи</Title>
+      <Title order={3} mb={4}>Проекты</Title>
+      <Text size="sm" c="dimmed" mb="sm">выберите проект — внутри его задачи и список сайтов</Text>
       <Stack>
-        {tasks.map((t) => (
-          <Paper key={t.id} p="sm" style={{ cursor: "pointer" }} onClick={() => nav(`/agent/task/${t.id}`)}>
-            <Group justify="space-between"><div><Text fw={600}>{t.name}</Text><Text size="xs" c="dimmed">{money(t.price_per_source)} за уникальный источник · сайтов {n(t.resources)}</Text></div>
-              <div style={{ textAlign: "right" }}><Text fw={700} className="num">{n(t.found)}{t.limit_sources ? ` / ${n(t.limit_sources)}` : ""}</Text><Text size="xs" c="dimmed">моих {n(t.mine)}{t.left != null ? ` · осталось ${n(t.left)}` : ""}</Text></div></Group>
+        {projects.map((p) => (
+          <Paper key={p.id} p="sm">
+            <Text fw={700} mb="xs">{p.name}</Text>
+            <Stack gap="xs">
+              {p.tasks.map((t: any) => (
+                <Paper key={t.id} p="sm" withBorder style={{ cursor: "pointer" }} onClick={() => nav(`/agent/task/${t.id}`)}>
+                  <Group justify="space-between"><div><Text fw={600}>{t.name}</Text><Text size="xs" c="dimmed">{money(t.price_per_source)} за уникальный источник · сайтов {n(t.resources)}</Text></div>
+                    <div style={{ textAlign: "right" }}><Text fw={700} className="num">{n(t.found)}{t.limit_sources ? ` / ${n(t.limit_sources)}` : ""}</Text><Text size="xs" c="dimmed">моих {n(t.mine)}{t.left != null ? ` · осталось ${n(t.left)}` : ""}</Text></div></Group>
+                </Paper>
+              ))}
+            </Stack>
           </Paper>
         ))}
-        {!tasks.length && <Paper><Text c="dimmed" ta="center">активных задач нет</Text></Paper>}
+        {!projects.length && <Paper><Text c="dimmed" ta="center">активных задач нет ни в одном проекте</Text></Paper>}
       </Stack>
     </Container>
   );
@@ -116,7 +125,7 @@ function TaskView() {
     <Container size="sm" py="md">
       <Header me={me.data} />
       <Group justify="space-between" mb="sm">
-        <Group gap="xs"><ActionIcon variant="subtle" onClick={() => (mode === "resources" ? setMode("menu") : nav("/agent"))}><IconArrowLeft size={18} /></ActionIcon><div><Title order={3}>{t?.name}</Title><Text size="xs" c="dimmed">{money(t?.price_per_source)} за источник · найдено {n(t?.found)}{t?.limit_sources ? ` из ${n(t.limit_sources)}` : ""}{t?.left === 0 ? " · лимит исчерпан" : ""}</Text></div></Group>
+        <Group gap="xs"><ActionIcon variant="subtle" onClick={() => (mode === "resources" ? setMode("menu") : nav("/agent"))}><IconArrowLeft size={18} /></ActionIcon><div><Title order={3}>{t?.name}</Title><Text size="xs" c="dimmed">{t?.client_name ? `${t.client_name} · ` : ""}{money(t?.price_per_source)} за источник · найдено {n(t?.found)}{t?.limit_sources ? ` из ${n(t.limit_sources)}` : ""}{t?.left === 0 ? " · лимит исчерпан" : ""}</Text></div></Group>
       </Group>
       {mode === "menu" && (
         <Stack>
@@ -155,7 +164,7 @@ export default function AgentApp() {
     <Routes>
       <Route path="login" element={<Login />} />
       <Route path="task/:id" element={<Require><TaskView /></Require>} />
-      <Route path="*" element={<Require><TaskList /></Require>} />
+      <Route path="*" element={<Require><ProjectList /></Require>} />
     </Routes>
   );
 }
