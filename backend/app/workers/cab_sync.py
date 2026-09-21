@@ -153,7 +153,12 @@ async def push_sources(db: AsyncSession, lf: LF, c: CabClient) -> None:
         if lfs.get("will_work") != want_work:
             (will_on if want_work else will_off).append(s.lf_source_id)
         if s.geo_ids:
-            calls.append(lf.sources_settings([s.lf_source_id], geo_ids=[int(g) for g in s.geo_ids]))
+            # регионы шлём только если в LF они другие: раньше при каждой разгрузке уходил
+            # запрос на каждый источник (932 у gckspb078777), и всё упиралось в их лимит 429
+            want_geo = {int(g) for g in s.geo_ids}
+            have_geo = {int(g["id"]) for g in (lfs.get("geo") or []) if isinstance(g, dict) and g.get("id") is not None}
+            if want_geo != have_geo:
+                calls.append(lf.sources_settings([s.lf_source_id], geo_ids=sorted(want_geo)))
     # флаг снимаем только после успешных вызовов: иначе упавший запрос теряет изменение навсегда
     if will_on:
         await lf.sources_will_work(will_on, True)
