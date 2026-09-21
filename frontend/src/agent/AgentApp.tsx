@@ -66,32 +66,46 @@ function Header({ me }: { me: any }) {
   );
 }
 
-function ProjectList() {
-  // Агент общий для всех проектов: показываем все активные задачи, сгруппированные по проекту (клиенту)
-  const me = useMe();
+function ProjectCard({ p }: { p: any }) {
   const nav = useNavigate();
+  return (
+    <Paper p="sm">
+      <Text fw={700} mb="xs">{p.name}</Text>
+      <Stack gap="xs">
+        {p.tasks.map((t: any) => (
+          <Paper key={t.id} p="sm" withBorder style={{ cursor: "pointer" }} onClick={() => nav(`/agent/task/${t.id}`)}>
+            <Group justify="space-between"><div><Text fw={600}>{t.name}</Text><Text size="xs" c="dimmed">{money(t.price_per_source)} за уникальный источник · сайтов {n(t.resources)}</Text></div>
+              <div style={{ textAlign: "right" }}><Text fw={700} className="num">{n(t.found)}{t.limit_sources ? ` / ${n(t.limit_sources)}` : ""}</Text><Text size="xs" c="dimmed">моих {n(t.mine)}{t.left != null ? ` · осталось ${n(t.left)}` : ""}</Text></div></Group>
+          </Paper>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+function ProjectList() {
+  // Агент общий для всех проектов. «Мои» — где назначен на задачу или уже приносил номера; остальные доступны для выбора
+  const me = useMe();
   const projects: any[] = me.data?.projects || [];
+  const mine = projects.filter((p) => p.mine);
+  const other = projects.filter((p) => !p.mine);
   return (
     <Container size="sm" py="md">
       <Header me={me.data} />
-      <Title order={3} mb={4}>Проекты</Title>
+      <Title order={3} mb={4}>Мои проекты</Title>
       <Text size="sm" c="dimmed" mb="sm">выберите проект — внутри его задачи и список сайтов</Text>
       <Stack>
-        {projects.map((p) => (
-          <Paper key={p.id} p="sm">
-            <Text fw={700} mb="xs">{p.name}</Text>
-            <Stack gap="xs">
-              {p.tasks.map((t: any) => (
-                <Paper key={t.id} p="sm" withBorder style={{ cursor: "pointer" }} onClick={() => nav(`/agent/task/${t.id}`)}>
-                  <Group justify="space-between"><div><Text fw={600}>{t.name}</Text><Text size="xs" c="dimmed">{money(t.price_per_source)} за уникальный источник · сайтов {n(t.resources)}</Text></div>
-                    <div style={{ textAlign: "right" }}><Text fw={700} className="num">{n(t.found)}{t.limit_sources ? ` / ${n(t.limit_sources)}` : ""}</Text><Text size="xs" c="dimmed">моих {n(t.mine)}{t.left != null ? ` · осталось ${n(t.left)}` : ""}</Text></div></Group>
-                </Paper>
-              ))}
-            </Stack>
-          </Paper>
-        ))}
-        {!projects.length && <Paper><Text c="dimmed" ta="center">активных задач нет ни в одном проекте</Text></Paper>}
+        {mine.map((p) => <ProjectCard key={p.id} p={p} />)}
+        {!mine.length && <Paper><Text c="dimmed" ta="center">пока ни одного — возьмите проект из списка ниже</Text></Paper>}
       </Stack>
+      {other.length > 0 && (
+        <>
+          <Title order={4} mt="lg" mb={4}>Другие проекты</Title>
+          <Text size="sm" c="dimmed" mb="sm">доступны для работы — после первого добавленного номера проект перейдёт в «Мои»</Text>
+          <Stack>{other.map((p) => <ProjectCard key={p.id} p={p} />)}</Stack>
+        </>
+      )}
+      {!projects.length && <Paper><Text c="dimmed" ta="center">активных задач нет ни в одном проекте</Text></Paper>}
     </Container>
   );
 }

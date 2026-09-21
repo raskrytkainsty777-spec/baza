@@ -66,17 +66,27 @@ async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me")
 async def me(a: CabAgent = Depends(require_agent), db: AsyncSession = Depends(get_db)):
-    """Агент и все доступные проекты: активные клиенты с включёнными задачами."""
+    """Агент и все доступные проекты: активные клиенты с включёнными задачами.
+
+    «Мои» (mine) — проекты, где агент назначен на задачу или уже приносил номера;
+    они идут первыми и в кабинете показаны отдельным блоком (просьба заказчика 21.09.2026).
+    """
     rows = (await db.execute(select(CabTask, CabClient).join(CabClient, CabClient.id == CabTask.client_id)
                              .where(CabTask.enabled.is_(True), CabClient.is_active.is_(True))
                              .order_by(CabClient.name, desc(CabTask.id)))).all()
+    linked = set((await db.execute(select(CabTaskAgent.task_id).where(CabTaskAgent.agent_id == a.id))).scalars().all())
+    worked = set((await db.execute(select(CabFoundSource.client_id).where(CabFoundSource.agent_id == a.id).distinct())).scalars().all())
     projects: dict[int, dict] = {}
     for t, c in rows:
-        p = projects.setdefault(c.id, {"id": c.id, "name": c.name, "tasks": []})
-        p["tasks"].append(await _task_dto(db, a, t, c))
+        p = projects.setdefault(c.id, {"id": c.id, "name": c.name, "mine": c.id in worked, "tasks": []})
+        d = await _task_dto(db, a, t, c)
+        d["mine"] = t.id in linked
+        p["mine"] = p["mine"] or d["mine"]
+        p["tasks"].append(d)
+    ordered = sorted(projects.values(), key=lambda p: (not p["mine"], p["name"]))
     return {"id": a.id, "name": a.name, "login": a.login, "balance": float(a.balance or 0), "requisites": a.requisites,
-            "projects": list(projects.values()),
-            "tasks": [t for p in projects.values() for t in p["tasks"]]}
+            "projects": ordered,
+            "tasks": [t for p in ordered for t in p["tasks"]]}
 
 
 @router.patch("/requisites")
