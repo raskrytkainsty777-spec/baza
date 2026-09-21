@@ -34,12 +34,24 @@ async def run():
         try:
             async with SessionLocal() as db:
                 token = await get_token(db)
-                clients = (await db.execute(select(CabClient).where(
-                    CabClient.is_active.is_(True), CabClient.lf_crm_id.isnot(None)))).scalars().all()
-                if clients and token:
-                    lf = LF(token)
-                    for c in clients:
-                        await _client_pass(db, lf, c)
+                ids = (await db.execute(select(CabClient.id).where(
+                    CabClient.is_active.is_(True), CabClient.lf_crm_id.isnot(None))
+                    .order_by(CabClient.id))).scalars().all()
+            if ids and token:
+                lf = LF(token)
+                for cid in ids:
+                    # Сессия на клиента и порядок по id. Раньше одна сессия на всех и без ORDER BY:
+                    # сбой в базе у одного клиента (verona, 19.09.2026 — поле длиннее колонки)
+                    # отравлял транзакцию, проход валился, а клиенты «после» него в случайном
+                    # порядке Postgres два дня не синхронизировались вовсе.
+                    try:
+                        async with SessionLocal() as db:
+                            c = await db.get(CabClient, cid)
+                            if c is not None:
+                                await _client_pass(db, lf, c)
+                    except Exception:
+                        log.exception("клиент id=%s: проход по клиенту не удался", cid)
+            async with SessionLocal() as db:
                 await heartbeat(db, "cab_sync")
         except Exception:
             log.exception("проход не удался")
@@ -55,12 +67,18 @@ async def _client_pass(db: AsyncSession, lf: LF, c: CabClient) -> None:
     async def step(name: str, make_coro) -> None:
         try:
             await make_coro()
+            await db.commit()
+            return
         except LFError as e:
             errors.append(f"{name} — {e}")
             log.warning("клиент %s, %s: %s", c.login, name, e)
         except Exception as e:   # noqa: BLE001
             errors.append(f"{name} — {type(e).__name__}: {e}")
             log.exception("клиент %s, %s", c.login, name)
+        # Упавшая транзакция отравляет сессию: без отката следующие шаги и итоговый commit
+        # падают тоже. После отката объекты сброшены — клиента перечитываем.
+        await db.rollback()
+        await db.refresh(c)
 
     await step("источники", lambda: push_sources(db, lf, c))
     await step("чёрный список", lambda: push_blacklist(db, lf, c))
@@ -281,6 +299,13 @@ async def maybe_activate(db: AsyncSession, lf: LF, c: CabClient) -> None:
 
 # ── контакты ─────────────────────────────────────────────────────────────────
 
+def _cut(value, width: int) -> str | None:
+    """Строка под ширину колонки. LF присылает и оператора длиннее 60 символов (verona,
+    19.09.2026) — вставка падала, и с ней весь проход воркера."""
+    s = str(value).strip() if value is not None else ""
+    return s[:width] or None
+
+
 async def sync_contacts(db: AsyncSession, lf: LF, c: CabClient) -> None:
     since = None
     if c.contacts_synced_at:
@@ -297,10 +322,10 @@ async def sync_contacts(db: AsyncSession, lf: LF, c: CabClient) -> None:
             supplier = parts[0] if parts and parts[0] in SUPPLIERS else None
             src = sources.get(parts[1]) if len(parts) > 1 else None
             rows.append({
-                "client_id": c.id, "lf_answer_id": int(a["id"]), "phone": str(a.get("mobile_tel") or ""),
-                "operator": (a.get("mobile_operator") or None), "region": (a.get("mobile_operator_region") or None),
+                "client_id": c.id, "lf_answer_id": int(a["id"]), "phone": str(a.get("mobile_tel") or "")[:32],
+                "operator": _cut(a.get("mobile_operator"), 60), "region": _cut(a.get("mobile_operator_region"), 120),
                 "source_tag": tag[:80] or None, "supplier": supplier, "source_id": src.id if src else None,
-                "company_id": src.company_id if src else None, "lf_status": a.get("status"),
+                "company_id": src.company_id if src else None, "lf_status": _cut(a.get("status"), 20),
                 "bought_at": parse_dt(a.get("date")),
             })
         if rows:

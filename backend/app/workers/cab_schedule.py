@@ -61,22 +61,36 @@ def _no_money(c: CabClient) -> bool:
 
 
 async def _set(db: AsyncSession, lf: LF | None, c: CabClient, on: bool, note: str) -> None:
-    """Перевести закупку клиента в нужное состояние: статусом проекта, иначе источниками."""
+    """Перевести закупку клиента в нужное состояние: статусом проекта, иначе источниками.
+
+    Источники — только запасной путь, когда CRM LF не принял статус. Раньше при уже
+    совпадающем статусе функция проваливалась в эту ветку и гасила все источники:
+    gckspb078777 18.09.2026 в полночь — проект на паузе, 932 источника выключены «как при
+    сбое CRM», а вернуть их 19.09 не вышло (LF обрывал ответ со списком источников),
+    и воскресенье прошло без закупки при активном проекте.
+    """
     want = "active" if on else "pause"
-    if lf and c.lf_crm_id and c.lf_status != want:
+    if lf and c.lf_crm_id:
+        changed = False
         try:
-            await lf.set_status(c.lf_crm_id, want)
-            c.lf_status = want
+            if c.lf_status != want:
+                await lf.set_status(c.lf_crm_id, want)
+                c.lf_status = want
+                changed = True
+        except LFError as e:
+            log.warning("клиент %s: статус проекта не сменился (%s) — гасим источниками", c.login, e)
+        else:
+            # статус на месте — источники, погашенные запасным путём, возвращаем
             back = await db.execute(update(CabSource).where(
                 CabSource.client_id == c.id, CabSource.enabled_by_schedule.is_(False))
                 .values(enabled_by_schedule=True, lf_dirty=True))
-            await log_event(db, "cab.schedule",
-                            f"Клиент {c.login}: {note} — проект переведён в «{want}»"
-                            + (f", источников возвращено {back.rowcount}" if back.rowcount else ""),
-                            entity="cab_client", entity_id=c.id)
+            if changed or back.rowcount:
+                await log_event(db, "cab.schedule",
+                                f"Клиент {c.login}: {note} — проект "
+                                + ("переведён в" if changed else "уже в") + f" «{want}»"
+                                + (f", источников возвращено {back.rowcount}" if back.rowcount else ""),
+                                entity="cab_client", entity_id=c.id)
             return
-        except LFError as e:
-            log.warning("клиент %s: статус проекта не сменился (%s) — гасим источниками", c.login, e)
     res = await db.execute(update(CabSource).where(
         CabSource.client_id == c.id, CabSource.enabled_by_schedule.is_(not on))
         .values(enabled_by_schedule=on, lf_dirty=True))
@@ -161,9 +175,10 @@ async def _hold_today(db: AsyncSession, now: datetime) -> None:
     for c in clients:
         on = bool(_days(c)[now.weekday()]) and not _no_money(c)
         want = "active" if on else "pause"
-        need_sources = (await db.execute(select(CabSource.id).where(
-            CabSource.client_id == c.id, CabSource.enabled_by_schedule.is_(not on)).limit(1))).first()
-        if c.lf_status == want and not need_sources:
+        # источники, погашенные запасным путём, надо вернуть, как только статус снова принимается
+        fallen = (await db.execute(select(CabSource.id).where(
+            CabSource.client_id == c.id, CabSource.enabled_by_schedule.is_(False)).limit(1))).first()
+        if c.lf_status == want and not fallen:
             continue
         await _set(db, lf, c, on, f"сегодня закупка {'включена' if on else 'выключена'} расписанием")
     await db.commit()

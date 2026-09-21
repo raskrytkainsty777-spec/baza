@@ -31,6 +31,8 @@ SUPPLIERS = {
     "B111": "Теле2 / Ростелеком", "B221": "Билайн · сайты",
 }
 BULK_MAX = 400        # лимит LF на массовые вызовы — 500, берём с запасом
+READ_RETRIES = 3      # попыток на GET при обрыве соединения/таймауте
+SOURCES_PAGE = 100    # страница списка источников: 200 давали ~90 КБ ответа, обрыв 19.09.2026 был на ~80 КБ
 PHONE_SUPPLIERS = ["B222", "B223", "B333", "B111"]  # что имеет смысл для номера-источника (B111 = Теле2/Ростелеком, с 07.09.2026)
 
 
@@ -67,9 +69,25 @@ class LF:
         self.base = (base or settings.leadsfactory_base).rstrip("/")
 
     async def _req(self, method: str, path: str, params: dict | None = None, json=None):
-        async with httpx.AsyncClient(timeout=TIMEOUT) as cl:
-            r = await cl.request(method, self.base + path, params=params, json=json,
-                                 headers={"Authorization": f"Bearer {self.token}"})
+        # Обрыв соединения и таймаут — тоже LFError, чтобы вызывающий код обрабатывал их как любой
+        # сбой LF (иначе httpx-исключение пролетало мимо `except LFError` и валило проход воркера).
+        # Чтение повторяем: 19.09.2026 их openresty почти сутки закрывал соединение на полпути
+        # («peer closed connection without sending complete message body»), запись не повторяем —
+        # она могла успеть примениться.
+        attempts = READ_RETRIES if method == "GET" else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=TIMEOUT) as cl:
+                    r = await cl.request(method, self.base + path, params=params, json=json,
+                                         headers={"Authorization": f"Bearer {self.token}"})
+                break
+            except httpx.HTTPError as e:
+                if attempt < attempts:
+                    log.warning("LF %s %s: %s: %s — повтор %d/%d", method, path, type(e).__name__, e,
+                                attempt, attempts - 1)
+                    await asyncio.sleep(2 * attempt)
+                    continue
+                raise LFError(f"LF не ответил ({type(e).__name__}): {str(e)[:200]}") from e
         if r.status_code == 401:
             raise LFError("LF: токен не принят (401)")
         if r.status_code >= 500:
@@ -126,10 +144,10 @@ class LF:
         out, page = [], 1
         while True:
             d = await self._req("GET", f"/v1/vdl/api/sources/get_detail_by_project/{crm_id}",
-                                params={"page": page, "limit": 200})
+                                params={"page": page, "limit": SOURCES_PAGE})
             items = d.get("sources") or []
             out += items
-            if len(items) < 200:
+            if len(items) < SOURCES_PAGE:
                 return out
             page += 1
 
