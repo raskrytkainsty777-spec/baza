@@ -153,6 +153,23 @@ class CabBlacklist(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CabSourceBlacklist(Base):
+    """Источники, которые нельзя включать никогда (решение заказчика 22.09.2026).
+
+    Попал в список — источник выключается сразу, cab_sync гасит его в LF. Появился снова
+    (руками, от агента, из досбора, из импорта LF) — остаётся выключенным; любое «включить»
+    его обходит. Отдельно от cab_blacklist: тот — про покупаемые номера, этот — про источники.
+    """
+    __tablename__ = "cab_source_blacklist"
+    __table_args__ = (UniqueConstraint("client_id", "phone", name="uq_cab_source_blacklist"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("cab_clients.id"), index=True)
+    phone: Mapped[str] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CabInbox(Base):
     """Статусы от сторонних сервисов клиента. Эндпоинт только пишет сюда; разбор — воркером."""
     __tablename__ = "cab_inbox"

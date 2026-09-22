@@ -351,12 +351,15 @@ async def task_export(task_id: int, fmt: str = "csv", c: CabClient = Depends(req
 
 
 async def purchase_found(db: AsyncSession, c: CabClient, t: CabTask, found: list[CabFoundSource]) -> int:
-    """Найденные агентами номера → источники клиента (уйдут в LF воркером)."""
+    """Найденные агентами номера → источники клиента (уйдут в LF воркером).
+    Номера из чёрного списка источников в закупку не уходят никогда."""
+    from ..services import source_blacklist as sbl
     have = {s.phone: s for s in (await db.execute(select(CabSource).where(CabSource.client_id == c.id))).scalars().all()}
+    black = await sbl.phones(db, c.id)
     sup = t.purchase_suppliers or list(c.suppliers_default or PHONE_SUPPLIERS)
     n = 0
     for f in found:
-        if f.source_id:
+        if f.source_id or f.phone in black:
             continue
         s = have.get(f.phone)
         if s is None:
@@ -378,4 +381,8 @@ async def task_to_purchase(task_id: int, c: CabClient = Depends(require_client),
     found = (await db.execute(select(CabFoundSource).where(CabFoundSource.task_id == task_id, CabFoundSource.source_id.is_(None)))).scalars().all()
     n = await purchase_found(db, c, t, found)
     await db.commit()
-    return {"purchased": n, "note": "Уйдут в LF в течение минуты"}
+    from ..services import source_blacklist as sbl
+    black = await sbl.phones(db, c.id)
+    skipped = sum(1 for f in found if f.phone in black)
+    return {"purchased": n, "blacklisted": skipped, "note": "Уйдут в LF в течение минуты"
+            + (f"; {skipped} из чёрного списка источников в закупку не ушли" if skipped else "")}

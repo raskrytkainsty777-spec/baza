@@ -5,19 +5,21 @@
   2. раз в минуту — баланс: остаток ₽ и цена заявки → баланс в контактах;
   3. раз в три минуты — купленные номера из «Заявок» → cab_contacts + счётчики по источникам;
   4. чёрный список → LF;
-  5. проект без статуса закупки включается сам, когда есть источники и баланс.
+  5. чёрный список источников: у нас выключены всегда, в LF сверяем раз в полчаса;
+  6. проект без статуса закупки включается сам, когда есть источники и баланс.
 """
 import asyncio
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
 from ..models import CabBlacklist, CabClient, CabContact, CabSource
+from ..services import source_blacklist as sbl
 from ..services.leadsfactory.client import LF, LFError, MSK, SUPPLIERS, get_token, parse_dt
 from .common import heartbeat, log_event, utcnow
 
@@ -26,7 +28,10 @@ log = logging.getLogger("cab_sync")
 POLL = 15
 BALANCE_EVERY = timedelta(seconds=60)
 CONTACTS_EVERY = timedelta(seconds=180)
+SOURCE_BLACKLIST_EVERY = timedelta(minutes=30)   # как часто сверяем чёрный список источников со списком LF
 TAG_CONCURRENCY = 5
+
+_blacklist_checked: dict[int, datetime] = {}      # клиент → когда последний раз сверяли с LF
 
 
 async def run():
@@ -81,6 +86,7 @@ async def _client_pass(db: AsyncSession, lf: LF, c: CabClient) -> None:
         await db.refresh(c)
 
     await step("источники", lambda: push_sources(db, lf, c))
+    await step("чёрный список источников", lambda: enforce_source_blacklist(db, lf, c))
     await step("чёрный список", lambda: push_blacklist(db, lf, c))
     if not c.balance_synced_at or now - c.balance_synced_at >= BALANCE_EVERY:
         await step("баланс", lambda: sync_balance(db, lf, c))
@@ -233,8 +239,46 @@ async def import_sources_from_lf(db: AsyncSession, lf: LF, c: CabClient) -> int:
             s.limit = max(limits)
         s.lf_dirty = False
         s.lf_error = None
+    # чёрный список источников сильнее того, что стоит в LF: такие остаются выключенными
+    # и уходят обратно в LF с will_work=false
+    for phone in await sbl.phones(db, c.id):
+        s = have.get(phone)
+        if s is not None and (s.enabled_by_user or s.lf_will_work):
+            s.enabled_by_user, s.lf_dirty = False, True
     await db.commit()
     return added
+
+
+async def enforce_source_blacklist(db: AsyncSession, lf: LF, c: CabClient) -> None:
+    """Источники из чёрного списка не работают никогда: у нас выключены, в LF will_work=false.
+
+    Локально проверяем каждый проход: источник мог прийти от агента, из импорта или его
+    включили массовым действием до появления в списке. Список LF сверяем раз в полчаса:
+    включили там руками — выключаем обратно.
+    """
+    black = await sbl.phones(db, c.id)
+    if not black:
+        return
+    n_local = await sbl.disable_sources(db, c.id)
+    if n_local:
+        await log_event(db, "cab.source_blacklist",
+                        f"Клиент {c.login}: {n_local} источников из чёрного списка оказались включены — выключены",
+                        entity="cab_client", entity_id=c.id, level="warn")
+    last = _blacklist_checked.get(c.id)
+    if last and utcnow() - last < SOURCE_BLACKLIST_EVERY:
+        return
+    _blacklist_checked[c.id] = utcnow()
+    hits = [s for s in await lf.sources_all(c.lf_crm_id)
+            if str(s.get("phone") or "") in black and s.get("will_work")]
+    if not hits:
+        return
+    ids = [s["id"] for s in hits]
+    await lf.sources_will_work(ids, False)
+    await db.execute(update(CabSource).where(CabSource.client_id == c.id, CabSource.lf_source_id.in_(ids))
+                     .values(lf_will_work=False, enabled_by_user=False))
+    await log_event(db, "cab.source_blacklist",
+                    f"Клиент {c.login}: в LF были включены {len(hits)} источников из чёрного списка — выключены",
+                    entity="cab_client", entity_id=c.id, level="warn")
 
 
 async def push_blacklist(db: AsyncSession, lf: LF, c: CabClient) -> None:

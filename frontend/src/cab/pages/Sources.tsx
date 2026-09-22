@@ -7,7 +7,7 @@ import { SUPPLIER_LABEL, WEEKDAYS, cabApi, qs } from "../api";
 import { useMe } from "../CabinetApp";
 import { dt, n } from "../../ui";
 
-const STATUS = [{ value: "", label: "все" }, { value: "on", label: "включённые" }, { value: "off", label: "выключенные" }, { value: "pending", label: "ждут LF" }, { value: "error", label: "с ошибкой" }];
+const STATUS = [{ value: "", label: "все" }, { value: "on", label: "включённые" }, { value: "off", label: "выключенные" }, { value: "black", label: "в чёрном списке" }, { value: "pending", label: "ждут LF" }, { value: "error", label: "с ошибкой" }];
 
 export default function Sources() {
   const qc = useQueryClient();
@@ -43,7 +43,7 @@ export default function Sources() {
 
   const add = useMutation({
     mutationFn: () => cabApi("/sources", { method: "POST", body: { text, delimiter: delim, suppliers: sup, limit: Number(limit) || 0, geo_ids: geoAdd.map(Number) } }),
-    onSuccess: (r: any) => { setText(""); bust(); notifications.show({ color: "green", message: `Добавлено ${r.added}, дублей ${r.duplicates}, нераспознано ${r.invalid_count}. ${r.note}` }); },
+    onSuccess: (r: any) => { setText(""); bust(); notifications.show({ color: "green", message: `Добавлено ${r.added}, дублей ${r.duplicates}, нераспознано ${r.invalid_count}${r.blacklisted ? `, в чёрном списке ${r.blacklisted} (не добавлены)` : ""}. ${r.note}` }); },
     onError: err,
   });
   const del = useMutation({
@@ -54,9 +54,17 @@ export default function Sources() {
   const askDelete = () => {
     if (window.confirm(`Удалить ${sel.length} источников навсегда? Закупка по ним остановится, вернуть будет нельзя. Купленные контакты останутся.`)) del.mutate();
   };
+  const toBlack = useMutation({
+    mutationFn: () => cabApi("/source-blacklist", { method: "POST", body: { ids: sel } }),
+    onSuccess: (r: any) => { setSel([]); bust(); qc.invalidateQueries({ queryKey: ["cab-source-blacklist"] }); notifications.show({ color: "green", message: `В чёрный список: ${r.added}${r.already ? `, уже были ${r.already}` : ""}. Выключено сейчас ${r.disabled} — уйдёт в LF в течение минуты` }); },
+    onError: err,
+  });
+  const askBlack = () => {
+    if (window.confirm(`Добавить ${sel.length} источников в чёрный список? Они выключатся сразу и больше никогда не включатся — ни вручную, ни от агентов, ни из LF.`)) toBlack.mutate();
+  };
   const bulk = useMutation({
     mutationFn: (b: any) => cabApi("/sources/bulk", { method: "POST", body: { ids: sel, ...b } }),
-    onSuccess: (r: any) => { bust(); notifications.show({ color: "green", message: `Изменено ${r.updated} источников — уйдёт в LF в течение минуты` }); },
+    onSuccess: (r: any) => { bust(); notifications.show({ color: r.skipped_blacklisted ? "yellow" : "green", message: `Изменено ${r.updated} источников${r.skipped_blacklisted ? `, пропущено из чёрного списка ${r.skipped_blacklisted}` : ""} — уйдёт в LF в течение минуты` }); },
     onError: err,
   });
   const saveDays = useMutation({
@@ -124,6 +132,7 @@ export default function Sources() {
             <Button size="xs" variant="light" color="green" onClick={() => bulk.mutate({ action: "enable" })}>включить</Button>
             <Button size="xs" variant="light" color="red" onClick={() => bulk.mutate({ action: "disable" })}>выключить</Button>
             <Button size="xs" variant="filled" color="red" loading={del.isPending} onClick={askDelete}>удалить навсегда</Button>
+            <Tooltip label="выключить сразу и никогда больше не включать, даже если появится снова"><Button size="xs" variant="light" color="dark" loading={toBlack.isPending} onClick={askBlack}>в чёрный список</Button></Tooltip>
             <Group gap={4} align="flex-end"><MultiSelect size="xs" w={260} label="поставщики" data={supOpts} value={bulkSup} onChange={setBulkSup} /><Button size="xs" variant="light" disabled={!bulkSup.length} onClick={() => bulk.mutate({ action: "suppliers", value: bulkSup })}>задать</Button></Group>
             <Group gap={4} align="flex-end"><MultiSelect size="xs" w={260} label="регионы" data={geoOpts} value={bulkGeo} onChange={setBulkGeo} searchable /><Button size="xs" variant="light" disabled={!bulkGeo.length} onClick={() => bulk.mutate({ action: "geo_add", value: bulkGeo.map(Number) })}>добавить</Button><Button size="xs" variant="subtle" disabled={!bulkGeo.length} onClick={() => bulk.mutate({ action: "geo_remove", value: bulkGeo.map(Number) })}>убрать</Button></Group>
             <Button size="xs" variant="subtle" color="gray" onClick={() => setSel([])}>снять выбор</Button>
@@ -158,6 +167,7 @@ export default function Sources() {
                 <Table.Td className="num">{dt(s.added_at)}</Table.Td>
                 <Table.Td style={{ whiteSpace: "nowrap" }}>
                   {s.enabled ? <Badge size="xs" color="green" variant="light">включён</Badge> : <Badge size="xs" color="gray" variant="light">{s.enabled_by_user ? "выкл расписанием" : "выключен"}</Badge>}
+                  {s.blacklisted && <Tooltip label="в чёрном списке источников: включить нельзя"><Badge size="xs" color="dark" variant="filled" ml={4}>ЧС</Badge></Tooltip>}
                   {s.lf_dirty && <Tooltip label="изменения ещё не ушли в LF"><Badge size="xs" color="yellow" variant="light" ml={4}>→ LF</Badge></Tooltip>}
                   {s.lf_error && <Tooltip label={s.lf_error}><Badge size="xs" color="red" variant="light" ml={4}>ошибка</Badge></Tooltip>}
                 </Table.Td>

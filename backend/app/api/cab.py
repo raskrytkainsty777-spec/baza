@@ -17,7 +17,10 @@ from sqlalchemy import case, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import CabBlacklist, CabClient, CabCompany, CabContact, CabFoundSource, CabInbox, CabSource
+from ..models import (
+    CabBlacklist, CabClient, CabCompany, CabContact, CabFoundSource, CabInbox, CabSource, CabSourceBlacklist,
+)
+from ..services import source_blacklist as sbl
 from ..services.leadsfactory.client import LFError, MSK, PHONE_SUPPLIERS, SUPPLIERS, lf_for
 from ..workers.common import log_event, utcnow
 from .cab_auth import login_client, require_client
@@ -169,12 +172,14 @@ async def _company(db: AsyncSession, client_id: int, name: str, cache: dict) -> 
 
 @router.post("/sources", status_code=201)
 async def add_sources(body: SourcesIn, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
-    """Строки `номер` или `номер<разделитель>компания`. Дубли внутри проекта не добавляются."""
+    """Строки `номер` или `номер<разделитель>компания`. Дубли внутри проекта не добавляются,
+    номера из чёрного списка источников — тоже: их нельзя включать никогда."""
     sup = [s for s in body.suppliers if s in SUPPLIERS] or list(c.suppliers_default or PHONE_SUPPLIERS)
     delim = body.delimiter if body.delimiter in (";", ",", "\t", "|") else ";"
     existing = {p for p in (await db.execute(select(CabSource.phone).where(CabSource.client_id == c.id))).scalars().all()}
+    black = await sbl.phones(db, c.id)
     cache: dict = {}
-    added, dup, invalid, seen = [], 0, [], set()
+    added, dup, invalid, seen, blocked = [], 0, [], set(), 0
     for line in body.text.splitlines():
         line = line.strip()
         if not line:
@@ -185,6 +190,9 @@ async def add_sources(body: SourcesIn, c: CabClient = Depends(require_client), d
         if not phone:
             invalid.append(line[:40])
             continue
+        if phone in black:
+            blocked += 1
+            continue
         if phone in existing or phone in seen:
             dup += 1
             continue
@@ -193,8 +201,13 @@ async def add_sources(body: SourcesIn, c: CabClient = Depends(require_client), d
         db.add(CabSource(client_id=c.id, company_id=comp.id if comp else None, phone=phone, suppliers=sup,
                          limit=max(0, body.limit), geo_ids=list(body.geo_ids), lf_dirty=True))
         added.append(phone)
+    if blocked:
+        await log_event(db, "cab.source_blacklist",
+                        f"Клиент {c.login}: при добавлении источников пропущено {blocked} из чёрного списка",
+                        entity="cab_client", entity_id=c.id)
     await db.commit()
     return {"added": len(added), "duplicates": dup, "invalid": invalid[:20], "invalid_count": len(invalid),
+            "blacklisted": blocked,
             "note": "Источники уходят в LF в фоне: у каждого появится ID и статус в течение минуты."}
 
 
@@ -208,7 +221,7 @@ SORTS = {
 @router.get("/sources")
 async def list_sources(
     search: str | None = None,
-    status: str | None = Query(None, pattern="^(on|off|pending|error)$"),
+    status: str | None = Query(None, pattern="^(on|off|pending|error|black)$"),
     company_id: int | None = None,
     sort: str = "added_at", order: str = "desc",
     page: int = 1, limit: int = Query(20, ge=1, le=5000),
@@ -227,6 +240,8 @@ async def list_sources(
         stmt = stmt.where(CabSource.lf_source_id.is_(None))
     elif status == "error":
         stmt = stmt.where(CabSource.lf_error.isnot(None))
+    elif status == "black":
+        stmt = stmt.where(CabSource.phone.in_(sbl.phones_stmt(c.id)))
     if company_id:
         stmt = stmt.where(CabSource.company_id == company_id)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
@@ -242,10 +257,12 @@ async def list_sources(
     col = {"company": CabCompany.name, "enabled": enabled}.get(sort) or SORTS.get(sort, CabSource.added_at)
     stmt = stmt.order_by(desc(col).nullslast() if order == "desc" else col.asc().nullsfirst(), CabSource.id)
     rows = (await db.execute(stmt.limit(limit).offset((page - 1) * limit))).all()
+    black = await sbl.phones(db, c.id)
     return {"total": total, "page": page, "limit": limit, "totals": totals, "items": [{
         "id": s.id, "lf_source_id": s.lf_source_id, "phone": s.phone, "company_id": s.company_id, "company": comp,
         "added_at": s.added_at, "enabled": bool(s.enabled_by_user and s.enabled_by_schedule),
         "enabled_by_user": s.enabled_by_user, "enabled_by_schedule": s.enabled_by_schedule,
+        "blacklisted": s.phone in black,
         "suppliers": s.suppliers or [], "limit": s.limit, "geo_ids": s.geo_ids or [],
         "contacts_total": s.contacts_total, "contacts_today": s.contacts_today, "repeats_total": s.repeats_total,
         "last_contact_at": s.last_contact_at, "lf_dirty": s.lf_dirty, "lf_error": s.lf_error,
@@ -292,10 +309,16 @@ async def bulk(body: BulkIn, c: CabClient = Depends(require_client), db: AsyncSe
     rows = (await db.execute(select(CabSource).where(CabSource.client_id == c.id, CabSource.id.in_(body.ids)))).scalars().all()
     if not rows:
         raise HTTPException(404, "Источники не найдены")
+    # источники из чёрного списка «включить» не может никто — их просто пропускаем
+    black = await sbl.phones(db, c.id) if body.action == "enable" else set()
+    skipped = 0
     for s in rows:
         if body.action == "limit":
             s.limit = max(0, int(body.value or 0))
         elif body.action == "enable":
+            if s.phone in black:
+                skipped += 1
+                continue
             s.enabled_by_user = True
         elif body.action == "disable":
             s.enabled_by_user = False
@@ -309,7 +332,7 @@ async def bulk(body: BulkIn, c: CabClient = Depends(require_client), db: AsyncSe
             raise HTTPException(400, "action: limit | enable | disable | suppliers | geo_add | geo_remove")
         s.lf_dirty = True
     await db.commit()
-    return {"updated": len(rows)}
+    return {"updated": len(rows) - skipped, "skipped_blacklisted": skipped}
 
 
 # ── компании ─────────────────────────────────────────────────────────────────
@@ -466,10 +489,12 @@ async def companies_bulk(body: CompanyBulkIn, c: CabClient = Depends(require_cli
     names = ", ".join(x.name for x in comps[:3]) + (f" +{len(comps) - 3}" if len(comps) > 3 else "")
     if body.action in ("disable_sources", "enable_sources"):
         on = body.action == "enable_sources"
-        res = await db.execute(update(CabSource)
-                               .where(CabSource.client_id == c.id, CabSource.company_id.in_(ids),
-                                      CabSource.enabled_by_user.is_(not on))
-                               .values(enabled_by_user=on, lf_dirty=True))
+        stmt = (update(CabSource)
+                .where(CabSource.client_id == c.id, CabSource.company_id.in_(ids), CabSource.enabled_by_user.is_(not on))
+                .values(enabled_by_user=on, lf_dirty=True))
+        if on:
+            stmt = stmt.where(CabSource.phone.notin_(sbl.phones_stmt(c.id)))   # чёрный список не включаем
+        res = await db.execute(stmt)
         await log_event(db, "cab.company_bulk",
                         f"Клиент {c.login}: {'включил' if on else 'выключил'} источники компаний {names} — {res.rowcount} шт",
                         entity="cab_client", entity_id=c.id)
@@ -581,6 +606,75 @@ async def blacklist_add(body: BlacklistIn, c: CabClient = Depends(require_client
         added += 1
     await db.commit()
     return {"added": added, "invalid": bad, "note": "Уйдут в LF в течение минуты"}
+
+
+# ── чёрный список источников ─────────────────────────────────────────────────
+
+class SourceBlacklistIn(BaseModel):
+    text: str = ""            # номера текстом: построчно, через запятую или пробел
+    ids: list[int] = []       # и/или id источников клиента (массовое действие в таблице)
+    note: str | None = None
+
+
+@router.get("/source-blacklist")
+async def source_blacklist_list(c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(CabSourceBlacklist).where(CabSourceBlacklist.client_id == c.id)
+                             .order_by(desc(CabSourceBlacklist.id)))).scalars().all()
+    empty = {"in_project": False, "enabled": False, "lf_dirty": False, "lf_will_work": None, "company": None, "source_id": None}
+    state: dict[str, dict] = {}
+    if rows:
+        srcs = (await db.execute(select(CabSource, CabCompany.name)
+                                 .outerjoin(CabCompany, CabCompany.id == CabSource.company_id)
+                                 .where(CabSource.client_id == c.id, CabSource.phone.in_([b.phone for b in rows])))).all()
+        for s, comp in srcs:
+            state[s.phone] = {"in_project": True, "enabled": bool(s.enabled_by_user and s.enabled_by_schedule),
+                              "lf_dirty": s.lf_dirty, "lf_will_work": s.lf_will_work, "company": comp, "source_id": s.id}
+    return {"items": [{"id": b.id, "phone": b.phone, "note": b.note, "created_at": b.created_at,
+                       **state.get(b.phone, empty)} for b in rows]}
+
+
+@router.post("/source-blacklist", status_code=201)
+async def source_blacklist_add(body: SourceBlacklistIn, c: CabClient = Depends(require_client),
+                               db: AsyncSession = Depends(get_db)):
+    """Номера текстом и/или id источников. Попавшие в список источники выключаются сразу,
+    cab_sync гасит их в LF; включить их обратно нельзя нигде, пока номер в списке."""
+    phones: set[str] = set()
+    bad = 0
+    for line in re.split(r"[\s,;]+", body.text or ""):
+        p = norm_phone(line)
+        if p:
+            phones.add(p)
+        elif line.strip():
+            bad += 1
+    if body.ids:
+        phones |= set((await db.execute(select(CabSource.phone).where(
+            CabSource.client_id == c.id, CabSource.id.in_(body.ids)))).scalars().all())
+    if not phones:
+        raise HTTPException(400, "Не распознано ни одного номера: нужно 11 цифр, начиная с 7")
+    note = (body.note or "").strip()[:300] or None
+    added, already = await sbl.add(db, c.id, phones, note)
+    disabled = await sbl.disable_sources(db, c.id, phones)
+    sample = ", ".join(sorted(phones)[:5]) + (f" +{len(phones) - 5}" if len(phones) > 5 else "")
+    await log_event(db, "cab.source_blacklist",
+                    f"Клиент {c.login}: в чёрный список источников добавлено {added} ({sample}), выключено сейчас {disabled}",
+                    entity="cab_client", entity_id=c.id)
+    await db.commit()
+    return {"added": added, "already": already, "invalid": bad, "disabled": disabled,
+            "note": "Выключенные источники уйдут в LF в течение минуты"}
+
+
+@router.delete("/source-blacklist/{item_id}")
+async def source_blacklist_delete(item_id: int, c: CabClient = Depends(require_client), db: AsyncSession = Depends(get_db)):
+    """Убрать из списка. Источник остаётся выключенным: включить его можно только вручную."""
+    b = await db.get(CabSourceBlacklist, item_id)
+    if not b or b.client_id != c.id:
+        raise HTTPException(404, "Запись не найдена")
+    phone = b.phone
+    await db.delete(b)
+    await log_event(db, "cab.source_blacklist", f"Клиент {c.login}: {phone} убран из чёрного списка источников",
+                    entity="cab_client", entity_id=c.id)
+    await db.commit()
+    return {"deleted": 1, "phone": phone}
 
 
 # ── статусы по вебхуку (без входа, по токену клиента) ────────────────────────

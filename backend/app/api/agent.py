@@ -15,11 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import CabAgent, CabClient, CabCompany, CabFoundSource, CabResource, CabSource, CabTask, CabTaskAgent
+from ..services import source_blacklist as sbl
 from .cab import norm_phone
 from .cab_auth import login_agent, require_agent
 from .cab_dosbor import purchase_found
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+# заказчик внёс номер в чёрный список источников проекта: такие не принимаем и не оплачиваем
+BLACKLISTED_MSG = "Этот номер в чёрном списке источников проекта — добавить нельзя"
 
 
 class LoginIn(BaseModel):
@@ -134,6 +138,8 @@ async def check(task_id: int, phone: str, a: CabAgent = Depends(require_agent), 
     p = norm_phone(phone)
     if not p:
         return {"ok": False, "reason": "Номер не распознан: нужно 11 цифр, начиная с 7"}
+    if await sbl.is_blacklisted(db, t.client_id, p):
+        return {"ok": False, "phone": p, "reason": BLACKLISTED_MSG}
     if await _exists_in_project(db, t.client_id, p):
         return {"ok": False, "phone": p, "reason": "Такой источник уже есть в проекте"}
     return {"ok": True, "phone": p}
@@ -155,6 +161,8 @@ async def add_source(task_id: int, body: SourceIn, a: CabAgent = Depends(require
     found = (await db.execute(select(func.count()).where(CabFoundSource.task_id == t.id))).scalar() or 0
     if t.limit_sources and found >= t.limit_sources:
         raise HTTPException(400, "Лимит задачи исчерпан — попросите заказчика поднять лимит")
+    if await sbl.is_blacklisted(db, t.client_id, p):
+        raise HTTPException(409, BLACKLISTED_MSG)
     if await _exists_in_project(db, t.client_id, p):
         raise HTTPException(409, "Такой источник уже есть в проекте")
     f = CabFoundSource(client_id=t.client_id, task_id=t.id, agent_id=a.id, company_id=comp.id, phone=p)
