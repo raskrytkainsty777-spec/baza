@@ -50,6 +50,7 @@ class LgCity(Base):
     intake_days: Mapped[int | None] = mapped_column(Integer)          # окно постов при заведении, иначе настройка intake_days
     prompt_post: Mapped[str | None] = mapped_column(Text)             # разметка поста: продающий ли, оффер, категория…
     prompt_comment: Mapped[str | None] = mapped_column(Text)          # оценка комментария: интерес или нет
+    min_comments_first: Mapped[int | None] = mapped_column(Integer)   # первый сбор: от стольких комментариев, иначе настройка
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

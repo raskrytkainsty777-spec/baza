@@ -46,11 +46,14 @@ class CityPatch(BaseModel):
     intake_days: int | None = None
     prompt_post: str | None = None
     prompt_comment: str | None = None
+    min_comments_first: int | None = None
 
 
 # поля, которые можно очистить: null → вернуть общее значение
 NULLABLE = ("crm_webhook_url", "crm_secret", "probe_hook_token",
-            "posts_per_account", "intake_days", "prompt_post", "prompt_comment")
+            "posts_per_account", "intake_days", "prompt_post", "prompt_comment", "min_comments_first")
+# числовые поля ниши: 0 или пусто — общее значение; сверху — предел здравого смысла
+NICHE_MAX = {"posts_per_account": 200, "intake_days": 365, "min_comments_first": 100000}
 
 
 def _dto(c: LgCity, extra: dict | None = None) -> dict:
@@ -67,6 +70,7 @@ def _dto(c: LgCity, extra: dict | None = None) -> dict:
         "send_mode": c.send_mode, "created_at": c.created_at,
         "posts_per_account": c.posts_per_account, "intake_days": c.intake_days,
         "prompt_post": c.prompt_post or "", "prompt_comment": c.prompt_comment or "",
+        "min_comments_first": c.min_comments_first,
     }
     if extra:
         d.update(extra)
@@ -175,11 +179,11 @@ async def patch_city(city_id: int, body: CityPatch, db: AsyncSession = Depends(g
         raise HTTPException(400, "probe_mode: manual | auto")
     if "send_mode" in data and data["send_mode"] not in ("manual", "auto"):
         raise HTTPException(400, "send_mode: manual | auto")
-    for k in ("posts_per_account", "intake_days"):
+    for k, top in NICHE_MAX.items():
         if k in data and data[k] is not None:
             if data[k] <= 0:
                 data[k] = None                     # 0 — вернуть общее значение
-            elif data[k] > (200 if k == "posts_per_account" else 365):
+            elif data[k] > top:
                 raise HTTPException(400, f"{k}: слишком много")
     for k, v in data.items():
         if isinstance(v, str):
@@ -257,13 +261,17 @@ COMMENTERS_SQL = text("""
 
 
 @router.get("/{city_id}/commenters.csv")
-async def commenters_csv(city_id: int, db: AsyncSession = Depends(get_db)):
-    """Уникальные комментаторы города (без ответов самих доноров) с оценкой интереса ИИ."""
+async def commenters_csv(city_id: int, interested: bool = False, db: AsyncSession = Depends(get_db)):
+    """Уникальные комментаторы города (без ответов самих доноров) с оценкой интереса ИИ.
+    interested — только те, в ком ИИ увидела интерес к предложению (заявка, плюс, кодовое слово, вопрос о цене)."""
     if not await db.get(LgCity, city_id):
         raise HTTPException(404, "Город не найден")
     rows = (await db.execute(COMMENTERS_SQL, {"cid": city_id})).all()
+    if interested:
+        rows = [r for r in rows if r[3]]
     out = [[u, f"https://instagram.com/{u}", n, posts, "да" if lead else ("ждёт ИИ" if pending else "нет"),
             _msk(first_at), _msk(last_at), _flat(txt), url, donor]
            for u, n, posts, lead, pending, first_at, last_at, txt, url, donor in rows]
     return _csv(out, ["логин", "профиль", "комментариев", "постов", "интерес по ИИ", "первый комментарий",
-                      "последний комментарий", "комментарий", "пост", "источник"], f"commenters_{city_id}.csv")
+                      "последний комментарий", "комментарий", "пост", "источник"],
+                f"commenters_{city_id}{'_interested' if interested else ''}.csv")

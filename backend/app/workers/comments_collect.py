@@ -53,6 +53,9 @@ async def _pass(db: AsyncSession, values: dict) -> None:
     intake_days = as_int(values, "intake_days", 45)
     threshold = as_int(values, "big_post_threshold", 1000)
     min_first = max(1, as_int(values, "min_comments_first", 1))
+    # у ниши свой порог: мебельщикам мало комментариев, берём с продающих все (28.09.2026)
+    city_min = {cid: int(v) for cid, v in (await db.execute(
+        select(LgCity.id, LgCity.min_comments_first).where(LgCity.min_comments_first.isnot(None)))).all()}
     # окно первого сбора у ниши своё: в запросе берём самое широкое, по городам режем ниже
     windows = await intake_days_by_city(db, intake_days)
     now = utcnow()
@@ -79,7 +82,7 @@ async def _pass(db: AsyncSession, values: dict) -> None:
         if p.last_collected_at is None:
             if p.published_at < now - timedelta(days=windows.get(p.city_id, intake_days)):
                 continue   # вне окна своего города
-            if (p.comments_count or 0) < min_first:
+            if (p.comments_count or 0) < max(1, city_min.get(p.city_id, min_first)):
                 # мало или нечего собирать; точка отсчёта прироста — текущий счётчик
                 p.last_collected_at, p.collected_comments = now, 0
                 p.comments_count_prev, p.comments_delta = p.comments_count or 0, 0

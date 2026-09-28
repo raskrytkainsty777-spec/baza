@@ -66,7 +66,7 @@ export function CityPage() {
   const probe = useQuery({ queryKey: ["probe-summary", id], queryFn: () => api(`/ops/cities/${id}/probe-summary`), refetchInterval: 30_000 });
   const [f, setF] = useState<any>({});
   const [pf, setPf] = useState({ date_from: "", date_to: "", limit: "" });
-  const [ex, setEx] = useState<{ min: number | string; selling: boolean }>({ min: 10, selling: true });
+  const [ex, setEx] = useState<{ min: number | string; selling: boolean; interested: boolean }>({ min: 0, selling: true, interested: true });
   useEffect(() => { if (city.data) setF({ ...city.data, probe_hook_token: "", crm_secret: "" }); }, [city.data]);
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
   const save = useMutation({
@@ -74,7 +74,7 @@ export function CityPage() {
       const body: any = {};
       for (const k of ["name", "is_active", "collect_posts", "collect_comments", "cost_per_contact", "cost_per_handling", "comment_fresh_days", "post_freeze_days", "donor_pause_days", "resend_after_days", "probe_mode", "probe_enabled", "crm_webhook_url", "send_mode", "prompt_post", "prompt_comment"]) body[k] = f[k];
       // ниша: пустое поле — вернуть общее значение
-      for (const k of ["posts_per_account", "intake_days"]) body[k] = f[k] === "" || f[k] === undefined ? null : Number(f[k]);
+      for (const k of ["posts_per_account", "intake_days", "min_comments_first"]) body[k] = f[k] === "" || f[k] === undefined || f[k] === null ? null : Number(f[k]);
       if (f.probe_hook_token) body.probe_hook_token = f.probe_hook_token;
       if (f.crm_secret) body.crm_secret = f.crm_secret;
       return api(`/cities/${id}`, { method: "PATCH", body });
@@ -203,6 +203,7 @@ export function CityPage() {
             <Group grow>
               <NumberInput label="Постов на аккаунт при заведении" placeholder="60" value={f.posts_per_account ?? ""} onChange={(v) => set("posts_per_account", v)} min={1} max={200} />
               <NumberInput label="Окно постов при заведении, дн" placeholder="как в Настройках" value={f.intake_days ?? ""} onChange={(v) => set("intake_days", v)} min={1} max={365} />
+              <NumberInput label="Комментарии с продающих — от, шт" description="1 — все, у кого есть хоть один" placeholder="как в Настройках" value={f.min_comments_first ?? ""} onChange={(v) => set("min_comments_first", v)} min={1} />
             </Group>
             <Textarea label="Промпт разметки поста" placeholder="пусто — общий промпт риелторов" autosize minRows={3} maxRows={14} value={f.prompt_post || ""} onChange={(e) => set("prompt_post", e.currentTarget.value)} mt="xs" />
             <Textarea label="Промпт оценки комментария" placeholder="пусто — общий промпт риелторов" autosize minRows={3} maxRows={14} value={f.prompt_comment || ""} onChange={(e) => set("prompt_comment", e.currentTarget.value)} mt="xs" />
@@ -216,7 +217,8 @@ export function CityPage() {
               <NumberInput w={150} label="От комментариев" value={ex.min} onChange={(v) => setEx({ ...ex, min: v })} min={0} />
               <Switch mb={8} label="только продающие" checked={ex.selling} onChange={(e) => setEx({ ...ex, selling: e.currentTarget.checked })} />
               <Button variant="light" onClick={() => download(`/cities/${id}/posts.csv?min_comments=${Number(ex.min) || 0}&selling=${ex.selling}`, `posts_${c.name}.csv`)}>Посты CSV</Button>
-              <Button variant="light" onClick={() => download(`/cities/${id}/commenters.csv`, `commenters_${c.name}.csv`)}>Комментаторы CSV</Button>
+              <Switch mb={8} label="только с интересом" checked={ex.interested} onChange={(e) => setEx({ ...ex, interested: e.currentTarget.checked })} />
+              <Button variant="light" onClick={() => download(`/cities/${id}/commenters.csv?interested=${ex.interested}`, `commenters_${c.name}${ex.interested ? "_interest" : ""}.csv`)}>Комментаторы CSV</Button>
             </Group>
           </Paper>
           <Paper>
