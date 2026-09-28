@@ -152,16 +152,29 @@ async def _new_posts_parserim(db: AsyncSession, values: dict, donors: dict[str, 
     await db.commit()
 
 
+POST_INFO_CHUNK = 10   # ссылок в задании = строк тарифа; на 50 ссылок задание при тарифе 10 строк не запустится вовсе
+
+
 async def _counters_parserim(db: AsyncSession, rows: list) -> None:
-    """Инфо о постах через parser.im p2 act=6 пачками по 50 ссылок; импорт считает прирост."""
+    """Инфо о постах через parser.im p2 act=6 пачками по 10 ссылок; импорт считает прирост.
+
+    Посты, которые ещё стоят в очереди со вчерашней сверки, второй раз не ставим: раньше
+    сверка ставила 27 заданий в день, выполнялось 13, и очередь копила дубли (22.09.2026 — 113 заданий).
+    """
+    busy: set[int] = set()
+    for j in (await db.execute(select(LgJob).where(
+            LgJob.kind == "post_info", LgJob.state.in_(["queued", "running"])))).scalars().all():
+        busy.update((j.payload or {}).get("post_ids") or [])
+    todo = [r for r in rows if r[0].id not in busy]
     made = 0
-    for chunk in chunks(rows, 50):
+    for chunk in chunks(todo, POST_INFO_CHUNK):
         await enqueue_job(db, provider="parserim", kind="post_info",
                           purpose=f"Инфо о постах: {len(chunk)}",
                           payload={"urls": [p.url for p, _ in chunk], "post_ids": [p.id for p, _ in chunk]},
                           lines=len(chunk))
         made += 1
-    await log_event(db, "posts.counters", f"Сверка через parser.im: постов {len(rows)}, заданий {made}")
+    await log_event(db, "posts.counters", f"Сверка через parser.im: постов {len(todo)}, заданий {made}"
+                    + (f", уже в очереди {len(rows) - len(todo)}" if len(rows) != len(todo) else ""))
     await db.commit()
 
 
@@ -176,9 +189,12 @@ async def _counters(db: AsyncSession, values: dict) -> None:
     has_lead = select(LgLead.id).where(LgLead.post_id == LgPost.id).exists()
     fresh = utcnow() - timedelta(days=POST_FRESH_DAYS)
     keep = or_(LgPost.monitor_status == "forced", has_lead, LgPost.published_at >= fresh)
+    # пост, чьи комментарии ещё ни разу не собирали, не замораживаем: при длинной очереди
+    # parser.im первый сбор идёт сутками, и раньше такие посты замерзали, так и не собравшись
     stale = (await db.execute(
         select(LgPost).join(LgDonor, LgDonor.id == LgPost.donor_id)
         .where(LgPost.monitor_status == "active", LgPost.is_selling.is_(True), ~keep,
+               LgPost.last_collected_at.isnot(None),
                LgPost.published_at.isnot(None), LgPost.published_at < fresh))).scalars().all()
     for p in stale:
         p.monitor_status = "frozen"

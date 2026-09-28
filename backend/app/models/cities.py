@@ -43,6 +43,14 @@ class LgCity(Base):
     crm_secret: Mapped[str | None] = mapped_column(String(120))
     send_mode: Mapped[str] = mapped_column(String(10), default="auto", server_default="auto")
 
+    # Отдельная ниша вместо города (28.09.2026: «Мебель Москва»). Пусто — общие значения.
+    # Свой промпт поста означает, что город проекта фиксирован: ИИ не определяет город
+    # постам, и ни посты, ни доноры не переезжают в риелторские города.
+    posts_per_account: Mapped[int | None] = mapped_column(Integer)   # постов на аккаунт при заведении (p1 limit2), иначе 60
+    intake_days: Mapped[int | None] = mapped_column(Integer)          # окно постов при заведении, иначе настройка intake_days
+    prompt_post: Mapped[str | None] = mapped_column(Text)             # разметка поста: продающий ли, оффер, категория…
+    prompt_comment: Mapped[str | None] = mapped_column(Text)          # оценка комментария: интерес или нет
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

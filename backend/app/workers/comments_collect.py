@@ -17,7 +17,7 @@ from ..models import IgAccount, LgCity, LgDonor, LgJob, LgPost
 from ..services.apify import client as apify
 from . import imports
 from .common import (
-    PRIORITY, as_float, as_int, chunks, enqueue_job, heartbeat, log_event, settings_all, utcnow,
+    PRIORITY, as_float, as_int, chunks, enqueue_job, heartbeat, intake_days_by_city, log_event, settings_all, utcnow,
 )
 from .posts_sync import apify_spent_today, run_collect
 
@@ -53,7 +53,10 @@ async def _pass(db: AsyncSession, values: dict) -> None:
     intake_days = as_int(values, "intake_days", 45)
     threshold = as_int(values, "big_post_threshold", 1000)
     min_first = max(1, as_int(values, "min_comments_first", 1))
-    since = utcnow() - timedelta(days=intake_days)
+    # окно первого сбора у ниши своё: в запросе берём самое широкое, по городам режем ниже
+    windows = await intake_days_by_city(db, intake_days)
+    now = utcnow()
+    since = now - timedelta(days=max(windows.values()))
     busy = await _busy_post_ids(db)
 
     rows = (await db.execute(
@@ -70,11 +73,12 @@ async def _pass(db: AsyncSession, values: dict) -> None:
         .order_by(LgPost.donor_id, LgPost.published_at.desc()))).all()
 
     first, growth_small, growth_big = [], [], []
-    now = utcnow()
     for p, username in rows:
         if p.id in busy:
             continue
         if p.last_collected_at is None:
+            if p.published_at < now - timedelta(days=windows.get(p.city_id, intake_days)):
+                continue   # вне окна своего города
             if (p.comments_count or 0) < min_first:
                 # мало или нечего собирать; точка отсчёта прироста — текущий счётчик
                 p.last_collected_at, p.collected_comments = now, 0

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import SessionLocal
 from ..models import IgAccount, LgCity, LgDonor, LgPost
 from ..services.ai.client import chat_json, prompt
-from .common import add_ai_cost, ai_on, get_or_create_city, heartbeat, log_event, settings_all, utcnow
+from .common import add_ai_cost, ai_on, get_or_create_city, heartbeat, log_event, niche_prompts, settings_all, utcnow
 
 log = logging.getLogger("ai_posts")
 
@@ -56,6 +56,7 @@ async def _pass(db: AsyncSession) -> None:
     model = (values.get("ai_model.posts") or "").strip() or None
     base = prompt("post", values)
     with_city = base + "\n\n" + prompt("post_city", values, cities=cities)
+    niche = await niche_prompts(db, "prompt_post")
     sem = asyncio.Semaphore(CONCURRENCY)
 
     async def ask(p: LgPost, d: LgDonor, acc: IgAccount):
@@ -63,9 +64,12 @@ async def _pass(db: AsyncSession) -> None:
         if not (p.caption or "").strip():
             return None
         # город спрашиваем у всех постов заводимого донора: без города — чтобы его найти,
-        # с городом — чтобы поймать переезд (донор из Москвы, а продаёт Сочи)
-        need_city = p.city_source != "ai"
-        system = (with_city if need_city else base) + (FORMAT % (", \"city\": null, \"city_confidence\": 0.0" if need_city else ""))
+        # с городом — чтобы поймать переезд (донор из Москвы, а продаёт Сочи).
+        # У ниши со своим промптом город проекта фиксирован: мебельщика из Москвы
+        # иначе увезло бы в риелторскую Москву вместе со всеми постами.
+        own = niche.get(p.city_id)
+        need_city = p.city_source != "ai" and not own
+        system = (own or (with_city if need_city else base)) + (FORMAT % (", \"city\": null, \"city_confidence\": 0.0" if need_city else ""))
         # профиль донора — подсказка для города: в посте «дом с платежом 40 тыс», а в описании «Сочи»
         user = json.dumps({"donor": username,
                            "donor_profile": {"name": acc.full_name, "bio": (acc.bio or "")[:500], "address": acc.address} if need_city else None,

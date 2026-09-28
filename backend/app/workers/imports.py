@@ -15,7 +15,7 @@ from ..models import (
     IgAccount, LgCandidate, LgCity, LgComment, LgDonor, LgJob, LgPost, LgReject, LgSearchTask,
 )
 from ..services.parserim.client import parse_date, unescape_url
-from .common import chunks, log_event, norm_login, shortcode_of, to_int, utcnow
+from .common import chunks, intake_days_by_city, log_event, norm_login, shortcode_of, to_int, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -203,7 +203,8 @@ async def import_posts(db: AsyncSession, job: LgJob, rows: list[dict], intake_da
             select(LgDonor, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id)
             .where(LgDonor.id.in_(donor_ids)))).all():
         donors[username.lower()] = d
-    since = utcnow() - timedelta(days=intake_days)
+    windows = await intake_days_by_city(db, intake_days)   # у ниши своё окно (мебель — 30 дней)
+    now = utcnow()
     inserted = skipped_old = 0
     for r in rows:
         d = donors.get(norm_login(r.get("source") or ""))
@@ -214,7 +215,7 @@ async def import_posts(db: AsyncSession, job: LgJob, rows: list[dict], intake_da
         if not d or not sc:
             continue
         published = parse_date(r.get("post_date") or "")
-        if published and published < since:
+        if published and published < now - timedelta(days=windows.get(d.city_id, intake_days)):
             skipped_old += 1
             continue
         cc = to_int(r.get("post_comment")) or 0

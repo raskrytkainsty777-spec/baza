@@ -334,9 +334,11 @@ async def _close_filter(db: AsyncSession, t: LgSearchTask, fjobs: list[LgJob]) -
     for c in left:
         c.state, c.reject_reason = "rejected", "inactive"
     real = [c for c in left if not c.username.startswith("id:")]
-    if real:
+    # пачками: у asyncpg предел 32 767 параметров на запрос, а три поля × 35 тыс. отклонённых
+    # (подписки по Москве, 26.09.2026) роняли воркер каждые 20 секунд двое суток
+    for batch in chunks(real, 5000):
         await db.execute(insert(LgReject).values([
-            {"username": c.username, "reason": "inactive", "search_task_id": t.id} for c in real
+            {"username": c.username, "reason": "inactive", "search_task_id": t.id} for c in batch
         ]).on_conflict_do_nothing(index_elements=["username"]))
     t.passed = (await db.execute(select(func.count()).select_from(LgCandidate).where(
         LgCandidate.task_id == t.id, LgCandidate.state == "filtered"))).scalar() or 0

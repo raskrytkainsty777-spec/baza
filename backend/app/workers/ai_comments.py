@@ -20,7 +20,7 @@ from ..db import SessionLocal
 from ..models import IgAccount, LgCity, LgComment, LgLead, LgPost
 from ..services.ai.client import chat_json, prompt
 from ..services.outbound import queue_crm
-from .common import add_ai_cost, ai_on, as_int, heartbeat, log_event, settings_all, utcnow
+from .common import add_ai_cost, ai_on, as_int, heartbeat, log_event, niche_prompts, settings_all, utcnow
 
 log = logging.getLogger("ai_comments")
 
@@ -78,13 +78,16 @@ async def _pass(db: AsyncSession) -> None:
         .group_by(LgComment.post_id).order_by(LgComment.post_id).limit(POSTS_PER_PASS))).scalars().all()
     if not post_ids:
         return
-    system = prompt("comment", values) + BATCH_FORMAT
+    base_system = prompt("comment", values) + BATCH_FORMAT
+    niche = await niche_prompts(db, "prompt_comment")   # у ниши своё понятие интереса (мебель, а не квартиры)
     sem = asyncio.Semaphore(CONCURRENCY)
     total_rules = total_ai = leads = 0
     cost, failed = 0.0, 0
 
     for pid in post_ids:
         p = await db.get(LgPost, pid)
+        own = niche.get(p.city_id) if p else None
+        system = (own + BATCH_FORMAT) if own else base_system
         comments = (await db.execute(
             select(LgComment).where(LgComment.post_id == pid, LgComment.qualification == "pending",
                                     LgComment.is_donor_reply.is_(False)).order_by(LgComment.id).limit(batch_size))).scalars().all()

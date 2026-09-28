@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Badge, Button, Code, Group, NumberInput, Paper, PasswordInput, Select, Stack, Switch, Table, Text, TextInput, Title } from "@mantine/core";
+import { Badge, Button, Code, Group, NumberInput, Paper, PasswordInput, Select, Stack, Switch, Table, Text, TextInput, Textarea, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -66,12 +66,15 @@ export function CityPage() {
   const probe = useQuery({ queryKey: ["probe-summary", id], queryFn: () => api(`/ops/cities/${id}/probe-summary`), refetchInterval: 30_000 });
   const [f, setF] = useState<any>({});
   const [pf, setPf] = useState({ date_from: "", date_to: "", limit: "" });
+  const [ex, setEx] = useState<{ min: number | string; selling: boolean }>({ min: 10, selling: true });
   useEffect(() => { if (city.data) setF({ ...city.data, probe_hook_token: "", crm_secret: "" }); }, [city.data]);
   const err = (e: any) => notifications.show({ color: "red", message: e.message });
   const save = useMutation({
     mutationFn: () => {
       const body: any = {};
-      for (const k of ["name", "is_active", "collect_posts", "collect_comments", "cost_per_contact", "cost_per_handling", "comment_fresh_days", "post_freeze_days", "donor_pause_days", "resend_after_days", "probe_mode", "probe_enabled", "crm_webhook_url", "send_mode"]) body[k] = f[k];
+      for (const k of ["name", "is_active", "collect_posts", "collect_comments", "cost_per_contact", "cost_per_handling", "comment_fresh_days", "post_freeze_days", "donor_pause_days", "resend_after_days", "probe_mode", "probe_enabled", "crm_webhook_url", "send_mode", "prompt_post", "prompt_comment"]) body[k] = f[k];
+      // ниша: пустое поле — вернуть общее значение
+      for (const k of ["posts_per_account", "intake_days"]) body[k] = f[k] === "" || f[k] === undefined ? null : Number(f[k]);
       if (f.probe_hook_token) body.probe_hook_token = f.probe_hook_token;
       if (f.crm_secret) body.crm_secret = f.crm_secret;
       return api(`/cities/${id}`, { method: "PATCH", body });
@@ -96,6 +99,11 @@ export function CityPage() {
   if (!c) return <Text c="dimmed">загрузка…</Text>;
   const set = (k: string, v: any) => setF((s: any) => ({ ...s, [k]: v }));
   const base = location.origin;
+  const download = async (path: string, filename: string) => {
+    const res = await fetch(`/api${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) { notifications.show({ color: "red", message: `Не удалось скачать: ${res.status}` }); return; }
+    const blob = await res.blob(); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  };
   const ps = probe.data;
   const probeReady = c.probe_enabled && c.probe_hook_token_set;
 
@@ -189,8 +197,28 @@ export function CityPage() {
               <NumberInput label="Не отдавать того же человека раньше, дн" value={f.resend_after_days} onChange={(v) => set("resend_after_days", v)} min={0} />
             </Group>
           </Paper>
+          <Paper>
+            <Text fw={600} mb={4}>Ниша: свои правила</Text>
+            <Text size="xs" c="dimmed" mb="xs">Для проекта не про недвижимость (например «Мебель Москва»). Пустые поля — общие значения из Настроек. Свой промпт поста делает город отдельной нишей: ИИ не определяет город постам, доноры и посты не переезжают в другие города. Формат ответа ИИ добавляется сам.</Text>
+            <Group grow>
+              <NumberInput label="Постов на аккаунт при заведении" placeholder="60" value={f.posts_per_account ?? ""} onChange={(v) => set("posts_per_account", v)} min={1} max={200} />
+              <NumberInput label="Окно постов при заведении, дн" placeholder="как в Настройках" value={f.intake_days ?? ""} onChange={(v) => set("intake_days", v)} min={1} max={365} />
+            </Group>
+            <Textarea label="Промпт разметки поста" placeholder="пусто — общий промпт риелторов" autosize minRows={3} maxRows={14} value={f.prompt_post || ""} onChange={(e) => set("prompt_post", e.currentTarget.value)} mt="xs" />
+            <Textarea label="Промпт оценки комментария" placeholder="пусто — общий промпт риелторов" autosize minRows={3} maxRows={14} value={f.prompt_comment || ""} onChange={(e) => set("prompt_comment", e.currentTarget.value)} mt="xs" />
+          </Paper>
         </Stack>
         <Stack>
+          <Paper>
+            <Text fw={600} mb={4}>Выгрузка</Text>
+            <Text size="xs" c="dimmed" mb="xs">Посты: источник, ссылка, дата, число комментариев, продающий ли, предложение, описание. Комментаторы: уникальные авторы без ответов самих доноров, с оценкой интереса ИИ и примером комментария.</Text>
+            <Group align="flex-end" gap="xs">
+              <NumberInput w={150} label="От комментариев" value={ex.min} onChange={(v) => setEx({ ...ex, min: v })} min={0} />
+              <Switch mb={8} label="только продающие" checked={ex.selling} onChange={(e) => setEx({ ...ex, selling: e.currentTarget.checked })} />
+              <Button variant="light" onClick={() => download(`/cities/${id}/posts.csv?min_comments=${Number(ex.min) || 0}&selling=${ex.selling}`, `posts_${c.name}.csv`)}>Посты CSV</Button>
+              <Button variant="light" onClick={() => download(`/cities/${id}/commenters.csv`, `commenters_${c.name}.csv`)}>Комментаторы CSV</Button>
+            </Group>
+          </Paper>
           <Paper>
             <Text fw={600} mb="xs">Пробив</Text>
             <Group grow>

@@ -6,6 +6,7 @@
 """
 import asyncio
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, select, update
@@ -13,11 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
 from ..models import IgAccount, LgCity, LgDonor, LgJob, LgPost
-from .common import as_int, chunks, collection_on, enqueue_job, get_value, heartbeat, log_event, set_value, settings_all, utcnow
+from .common import (
+    as_int, chunks, collection_on, enqueue_job, get_value, heartbeat, intake_days_by_city, log_event, set_value,
+    settings_all, utcnow,
+)
 
 log = logging.getLogger("donor_intake")
 
 POLL = 30
+POSTS_PER_ACCOUNT = 60   # постов на аккаунт при заведении, если у города не задано своё
 
 
 async def run():
@@ -45,19 +50,26 @@ async def _stage_posts(db: AsyncSession, unclassified_on: bool) -> None:
     if unclassified_on:
         allowed = or_(LgDonor.city_id.is_(None), allowed)
     rows = (await db.execute(
-        select(LgDonor, IgAccount.username).join(IgAccount, IgAccount.id == LgDonor.account_id)
+        select(LgDonor, IgAccount.username, LgCity.posts_per_account).join(IgAccount, IgAccount.id == LgDonor.account_id)
         .outerjoin(LgCity, LgCity.id == LgDonor.city_id)
         .where(LgDonor.status.in_(["new", "unclassified"]), LgDonor.intake_stage == "posts", allowed)
         .order_by(LgDonor.id))).all()
-    for chunk in chunks(rows, 10):
-        logins = [u for _, u in chunk]
-        ids = [d.id for d, _ in chunk]
-        await enqueue_job(db, provider="parserim", kind="posts_intake",
-                          purpose="Посты донора: " + ", ".join(logins[:3]) + (f" +{len(logins) - 3}" if len(logins) > 3 else ""),
-                          payload={"logins": logins, "donor_ids": ids, "limit": 60}, lines=len(logins),
-                          donor_id=ids[0] if len(ids) == 1 else None, city_id=chunk[0][0].city_id if len(ids) == 1 else None)
-        for d, _ in chunk:
-            d.intake_stage = "posts_run"
+    # у ниши свой лимит постов на аккаунт (мебель — 30): доноров с разным лимитом в одно задание не кладём
+    by_limit: dict[int, list] = defaultdict(list)
+    for d, u, per in rows:
+        by_limit[int(per) if per else POSTS_PER_ACCOUNT].append((d, u))
+    for limit, group in by_limit.items():
+        for chunk in chunks(group, 10):
+            logins = [u for _, u in chunk]
+            ids = [d.id for d, _ in chunk]
+            await enqueue_job(db, provider="parserim", kind="posts_intake",
+                              purpose="Посты донора: " + ", ".join(logins[:3]) + (f" +{len(logins) - 3}" if len(logins) > 3 else "")
+                              + (f" · по {limit}" if limit != POSTS_PER_ACCOUNT else ""),
+                              payload={"logins": logins, "donor_ids": ids, "limit": limit}, lines=len(logins),
+                              donor_id=ids[0] if len(ids) == 1 else None,
+                              city_id=chunk[0][0].city_id if len({d.city_id for d, _ in chunk}) == 1 else None)
+            for d, _ in chunk:
+                d.intake_stage = "posts_run"
     if rows:
         await db.commit()
 
@@ -168,16 +180,18 @@ async def _stage_comments_done(db: AsyncSession, intake_days: int) -> None:
     donors = (await db.execute(select(LgDonor).where(LgDonor.intake_stage == "comments"))).scalars().all()
     if not donors:
         return
-    since = utcnow() - timedelta(days=intake_days)
+    windows = await intake_days_by_city(db, intake_days)
     busy: set[int] = set()
     for j in (await db.execute(select(LgJob).where(
             LgJob.kind.in_(["comments", "apify_comments"]), LgJob.state.in_(["queued", "running"])))).scalars().all():
         busy.update((j.payload or {}).get("post_ids") or [])
     for d in donors:
+        days = windows.get(d.city_id, intake_days)
+        since = utcnow() - timedelta(days=days)
         total = (await db.execute(select(func.count()).select_from(LgPost).where(LgPost.donor_id == d.id))).scalar() or 0
         if total == 0:
             d.intake_stage, d.status, d.status_changed_at = "done", "paused", utcnow()
-            d.status_reason = f"нет постов за {intake_days} дн"
+            d.status_reason = f"нет постов за {days} дн"
             await log_event(db, "donor.paused", f"Донор #{d.id}: постов за окно нет — пауза", entity="donor", entity_id=d.id, level="warn")
             continue
         pending_posts = (await db.execute(select(LgPost.id).where(

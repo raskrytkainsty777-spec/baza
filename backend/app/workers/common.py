@@ -48,6 +48,21 @@ def as_float(values: dict, key: str, default: float = 0.0) -> float:
         return default
 
 
+async def intake_days_by_city(db: AsyncSession, default: int) -> dict[int | None, int]:
+    """Окно постов при заведении по городам: своё у ниши (lg_cities.intake_days), иначе общее."""
+    out: dict[int | None, int] = {None: default}
+    for cid, days in (await db.execute(select(LgCity.id, LgCity.intake_days))).all():
+        out[cid] = int(days) if days else default
+    return out
+
+
+async def niche_prompts(db: AsyncSession, field: str) -> dict[int, str]:
+    """Свои промпты ниш: город → текст (prompt_post или prompt_comment), пустые не берём."""
+    col = getattr(LgCity, field)
+    return {cid: text.strip() for cid, text in (await db.execute(select(LgCity.id, col).where(col.isnot(None)))).all()
+            if text and text.strip()}
+
+
 async def collection_on(db: AsyncSession) -> bool:
     return (await settings_all(db)).get("collection_enabled") == "1"
 
