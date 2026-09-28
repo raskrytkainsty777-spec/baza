@@ -18,8 +18,8 @@ from .common import add_ai_cost, ai_on, get_or_create_city, heartbeat, log_event
 log = logging.getLogger("ai_posts")
 
 POLL = 15
-BATCH = 12
-CONCURRENCY = 4
+BATCH = 32          # постов за проход; 12 при 4 потоках давали ~25 постов в минуту
+CONCURRENCY = 8
 CITY_CONFIDENT = 0.8
 FORMAT = ("\n\nФормат ответа: {\"is_selling\": true, \"offer\": \"…\", \"hook\": \"…\", \"category\": \"…\", "
           "\"cta_type\": \"…\", \"code_word\": null, \"summary\": \"…\"%s}")

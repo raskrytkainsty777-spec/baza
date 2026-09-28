@@ -28,6 +28,12 @@ class AiError(Exception):
     pass
 
 
+class AiServiceError(AiError):
+    """Отказал сам сервис: нет ключа или денег, сеть, 4xx/5xx. Содержимое запроса тут ни при чём,
+    поэтому такой отказ не считается попыткой по комментарию или посту (28.09.2026: при нулевом
+    балансе OpenRouter воркер за три прохода списал «Цена?» в «не лид»)."""
+
+
 def default_prompt(name: str) -> str:
     if name not in _cache:
         path = PROMPTS_DIR / f"{name}.md"
@@ -63,7 +69,7 @@ class AiResult(dict):
 async def chat_json(system: str, user: str, *, model: str | None = None,
                     max_tokens: int = 600, retries: int = 3) -> AiResult:
     if not settings.openrouter_key:
-        raise AiError("Не задан OPENROUTER_KEY")
+        raise AiServiceError("Не задан OPENROUTER_KEY")
     body = {
         "model": model or settings.ai_model_cheap,
         "messages": [
@@ -93,10 +99,10 @@ async def chat_json(system: str, user: str, *, model: str | None = None,
             await asyncio.sleep(5 * (attempt + 1))
             continue
         if r.status_code >= 400:
-            raise AiError(f"OpenRouter {r.status_code}: {r.text[:300]}")
+            raise AiServiceError(f"OpenRouter {r.status_code}: {r.text[:300]}")
         data = r.json()
         if data.get("error"):
-            raise AiError(str(data["error"])[:300])
+            raise AiServiceError(str(data["error"])[:300])
         choices = data.get("choices") or []
         content = (choices[0].get("message") or {}).get("content") if choices else ""
         out = AiResult(_extract_json(content or ""))
@@ -105,4 +111,4 @@ async def chat_json(system: str, user: str, *, model: str | None = None,
         except (TypeError, ValueError):
             out.cost = 0.0
         return out
-    raise AiError(last or "OpenRouter не ответил")
+    raise AiServiceError(last or "OpenRouter не ответил")

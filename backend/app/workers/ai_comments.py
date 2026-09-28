@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionLocal
 from ..models import IgAccount, LgCity, LgComment, LgLead, LgPost
-from ..services.ai.client import chat_json, prompt
+from ..services.ai.client import AiServiceError, chat_json, prompt
 from ..services.outbound import queue_crm
 from .common import add_ai_cost, ai_on, as_int, heartbeat, log_event, niche_prompts, settings_all, utcnow
 
@@ -112,7 +112,12 @@ async def _pass(db: AsyncSession) -> None:
         async with sem:
             try:
                 r = await chat_json(system, user, model=model, max_tokens=70 * len(need_ai) + 150)
-            except Exception as e:   # noqa: BLE001 — любой отказ ИИ считаем попыткой
+            except AiServiceError as e:
+                # сервис отказал (нет денег, сеть, 5xx): комментарии ждут, попытку не считаем
+                failed += 1
+                log.warning("пост %s: %s", p.shortcode if p else pid, e)
+                continue
+            except Exception as e:   # noqa: BLE001 — плохой ответ модели считаем попыткой
                 failed += 1
                 log.warning("пост %s: %s", p.shortcode if p else pid, e)
                 _note_retry(need_ai)
