@@ -17,7 +17,8 @@ router = APIRouter(prefix="/api/ops", tags=["ops"], dependencies=[Depends(requir
 
 RUNNABLE = ("new_posts", "counters")
 WORKERS = ("job_runner", "discovery", "donor_intake", "comments_collect", "posts_sync",
-           "ai_posts", "ai_comments", "probe_feeder", "outbox", "inbox", "cab_sync", "cab_inbox", "cab_schedule", "cab_deliver", "cab_notify")
+           "ai_posts", "ai_comments", "probe_feeder", "outbox", "inbox")
+# воркеры ГЦК (cab_*) переехали в walead 01.10.2026 — здесь их больше нет
 
 
 class Switches(BaseModel):

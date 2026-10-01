@@ -27,7 +27,8 @@ const NAV = [
   { to: "/probed", label: "Пробитая база", icon: IconPhoneCall },
   { to: "/cities", label: "Города", icon: IconBuildingCommunity },
   { to: "/jobs", label: "Задания и журнал", icon: IconBriefcase },
-  { to: "/gck", label: "ГЦК · закупка", icon: IconShoppingCart },
+  // ГЦК переехал в walead 01.10.2026 — пункт ведёт в админку walead
+  { to: "/gck", label: "ГЦК · закупка ↗", icon: IconShoppingCart, href: "https://admin.walead.ru/gck" },
   { to: "/settings", label: "Настройки", icon: IconSettings },
 ];
 
@@ -67,6 +68,12 @@ function Shell({ children }: { children: React.ReactNode }) {
         <ScrollArea style={{ flex: 1 }} mt="xs">
           {NAV.map((i) => {
             const active = i.end ? loc.pathname === i.to : loc.pathname.startsWith(i.to);
+            if ("href" in i && i.href) {
+              return (
+                <NavLink key={i.to} component="a" href={i.href} target="_blank" rel="noreferrer" label={i.label}
+                  leftSection={<i.icon size={18} stroke={1.6} />} variant="light" style={{ borderRadius: 8 }} />
+              );
+            }
             return (
               <NavLink key={i.to} component={RouterLink} to={i.to} label={i.label}
                 leftSection={<i.icon size={18} stroke={1.6} />} active={active}
